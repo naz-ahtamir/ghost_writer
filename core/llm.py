@@ -46,54 +46,98 @@ class LLMClient:
             self.model = model
         self._init_client()
 
+    def _execute_request(
+        self,
+        model_name: str,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        temperature: float = 0.7,
+    ) -> str:
+        """Execute a single generation request with a specific model."""
+        if self._client == "legacy":
+            import google.generativeai as gai
+            model_instance = gai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=system_instruction,
+            )
+            response = model_instance.generate_content(
+                prompt,
+                generation_config={"temperature": temperature},
+            )
+            return response.text or ""
+        else:
+            from google.genai import types
+            cfg = types.GenerateContentConfig(
+                temperature=temperature,
+            )
+            if system_instruction:
+                cfg.system_instruction = system_instruction
+
+            response = self._client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=cfg,
+            )
+            return response.text or ""
+
+    def _is_overload_error(self, error: Exception) -> bool:
+        """Check if error is due to server overload (503, high demand, unavailable)."""
+        err_str = str(error).lower()
+        return any(term in err_str for term in ["503", "unavailable", "high demand", "temporarily", "overloaded", "resource_exhausted"])
+
     def generate(
         self,
         prompt: str,
         system_instruction: Optional[str] = None,
         temperature: float = 0.7,
-        max_retries: int = 3,
+        max_retries: int = 4,
     ) -> str:
-        """Generate text using Gemini."""
+        """Generate text using Gemini with automatic retry and model fallback."""
         if not self.is_configured():
             raise ValueError(
                 "Gemini API Key belum diset! Silakan masukkan API Key Anda di menu Pengaturan atau file .env."
             )
 
+        # Build list of fallback models
+        models_to_try = [self.model]
+        for candidate in config.DEFAULT_MODELS:
+            if candidate not in models_to_try:
+                models_to_try.append(candidate)
+
         last_error = None
-        for attempt in range(max_retries):
-            try:
-                if self._client == "legacy":
-                    import google.generativeai as gai
-                    model_instance = gai.GenerativeModel(
-                        model_name=self.model,
+
+        for model_idx, current_model in enumerate(models_to_try):
+            if model_idx > 0:
+                print(f"\n[GhostWriter] 🔄 Beralih ke model alternatif: {current_model}...")
+
+            for attempt in range(max_retries):
+                try:
+                    return self._execute_request(
+                        model_name=current_model,
+                        prompt=prompt,
                         system_instruction=system_instruction,
-                    )
-                    response = model_instance.generate_content(
-                        prompt,
-                        generation_config={"temperature": temperature},
-                    )
-                    return response.text or ""
-                else:
-                    from google.genai import types
-                    cfg = types.GenerateContentConfig(
                         temperature=temperature,
                     )
-                    if system_instruction:
-                        cfg.system_instruction = system_instruction
+                except Exception as e:
+                    last_error = e
+                    if self._is_overload_error(e):
+                        wait_seconds = 3 * (attempt + 1)
+                        if attempt < max_retries - 1:
+                            print(f"\n[GhostWriter] ⚠️ Server Google untuk {current_model} sedang sibuk (503/High Demand). Mencoba kembali dalam {wait_seconds} detik (percobaan {attempt + 1}/{max_retries})...")
+                            time.sleep(wait_seconds)
+                        else:
+                            # Break inner loop to try next fallback model
+                            break
+                    else:
+                        if attempt < max_retries - 1:
+                            time.sleep(2 ** attempt)
+                        else:
+                            break
 
-                    response = self._client.models.generate_content(
-                        model=self.model,
-                        contents=prompt,
-                        config=cfg,
-                    )
-                    return response.text or ""
-            except Exception as e:
-                last_error = e
-                # Wait briefly before retrying (exponential backoff)
-                if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
-
-        raise RuntimeError(f"Gagal memanggil Gemini setelah {max_retries} percobaan: {last_error}")
+        raise RuntimeError(
+            f"Gagal memanggil Gemini setelah mencoba model {models_to_try}. "
+            f"Penyebab terakhir: {last_error}"
+        )
 
     def generate_json(
         self,
