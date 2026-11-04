@@ -16,7 +16,17 @@ if ENV_PATH.exists():
 else:
     load_dotenv()
 
-DEFAULT_MODELS = [
+# Supported Providers: "grok" (Prioritized) or "gemini"
+DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "grok").lower()
+
+GROK_MODELS = [
+    "grok-2-latest",
+    "grok-2-mini",
+    "grok-beta",
+]
+DEFAULT_GROK_MODEL = os.getenv("GROK_MODEL", "grok-2-latest")
+
+GEMINI_MODELS = [
     "gemini-flash-lite-latest",
     "gemini-flash-latest",
     "gemini-3.8-flash",
@@ -24,22 +34,82 @@ DEFAULT_MODELS = [
     "gemini-3.7-flash",
     "gemini-pro-latest",
 ]
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
+# Fallback alias for backward compatibility
+DEFAULT_MODELS = GROK_MODELS if DEFAULT_PROVIDER == "grok" else GEMINI_MODELS
+DEFAULT_MODEL = DEFAULT_GROK_MODEL if DEFAULT_PROVIDER == "grok" else DEFAULT_GEMINI_MODEL
+
 DEFAULT_LANGUAGE = os.getenv("NOVEL_DEFAULT_LANGUAGE", "Indonesian")
 
 
-def get_api_key() -> str:
-    """Retrieve Gemini API key from environment."""
+def get_provider() -> str:
+    """Retrieve current AI provider (grok or gemini)."""
+    p = os.getenv("AI_PROVIDER", "grok").strip().lower()
+    return "gemini" if p == "gemini" else "grok"
+
+
+def get_api_key(provider: str = None) -> str:
+    """Retrieve API key for given or active provider."""
+    prov = (provider or get_provider()).lower()
+    if prov == "grok":
+        return (os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY", "")).strip()
     return os.getenv("GEMINI_API_KEY", "").strip()
 
 
-def save_api_key(api_key: str, model: str = DEFAULT_MODEL) -> None:
-    """Save API key and model to .env file."""
+def get_models_for_provider(provider: str = None) -> list:
+    """List available model identifiers for the provider."""
+    prov = (provider or get_provider()).lower()
+    return GROK_MODELS if prov == "grok" else GEMINI_MODELS
+
+
+def get_active_model(provider: str = None) -> str:
+    """Retrieve active model name for the provider."""
+    prov = (provider or get_provider()).lower()
+    if prov == "grok":
+        return os.getenv("GROK_MODEL", DEFAULT_GROK_MODEL).strip()
+    return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+
+
+def save_settings(
+    provider: str,
+    api_key: str,
+    model: str,
+    language: str = DEFAULT_LANGUAGE,
+) -> None:
+    """Save provider, API key, and model to .env file."""
+    provider = provider.strip().lower()
     api_key = api_key.strip()
-    env_content = f"GEMINI_API_KEY={api_key}\nGEMINI_MODEL={model}\nNOVEL_DEFAULT_LANGUAGE={DEFAULT_LANGUAGE}\n"
+    model = model.strip()
+
+    # Read existing keys to preserve the other provider's credentials
+    grok_key = api_key if provider == "grok" else get_api_key("grok")
+    grok_model = model if provider == "grok" else get_active_model("grok")
+    gemini_key = api_key if provider == "gemini" else get_api_key("gemini")
+    gemini_model = model if provider == "gemini" else get_active_model("gemini")
+
+    env_lines = [
+        f"AI_PROVIDER={provider}",
+        f"GROK_API_KEY={grok_key}",
+        f"GROK_MODEL={grok_model}",
+        f"GEMINI_API_KEY={gemini_key}",
+        f"GEMINI_MODEL={gemini_model}",
+        f"NOVEL_DEFAULT_LANGUAGE={language}",
+    ]
     with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(env_content)
-    # Update current process environment
-    os.environ["GEMINI_API_KEY"] = api_key
-    os.environ["GEMINI_MODEL"] = model
+        f.write("\n".join(env_lines) + "\n")
+
+    # Update in-memory environment
+    os.environ["AI_PROVIDER"] = provider
+    os.environ["GROK_API_KEY"] = grok_key
+    os.environ["GROK_MODEL"] = grok_model
+    os.environ["GEMINI_API_KEY"] = gemini_key
+    os.environ["GEMINI_MODEL"] = gemini_model
+    os.environ["NOVEL_DEFAULT_LANGUAGE"] = language
+
+
+def save_api_key(api_key: str, model: str = None) -> None:
+    """Legacy helper function: save to active provider."""
+    prov = get_provider()
+    m = model or get_active_model(prov)
+    save_settings(provider=prov, api_key=api_key, model=m)

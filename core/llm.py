@@ -22,35 +22,26 @@ def safe_log(message: str) -> None:
 
 
 class LLMClient:
-    """Unified client for interacting with Google Gemini models."""
+    """Unified client supporting xAI Grok (Prioritized) and Google Gemini."""
 
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        self.api_key = api_key or config.get_api_key()
-        self.model = model or config.DEFAULT_MODEL
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+    ):
+        self.provider = (provider or config.get_provider()).lower()
+        self.api_key = api_key or config.get_api_key(self.provider)
+        self.model = model or config.get_active_model(self.provider)
         self._client = None
         self._init_client()
 
-    def _init_client(self) -> None:
-        """Initialize Google GenAI client."""
-        if not self.api_key:
-            return
-
-        try:
-            from google import genai
-            self._client = genai.Client(api_key=self.api_key)
-        except Exception:
-            # Fallback to google-generativeai if genai fails
-            try:
-                import google.generativeai as gai
-                gai.configure(api_key=self.api_key)
-                self._client = "legacy"
-            except Exception:
-                # Direct REST API fallback via Python standard library (zero pip dependencies required)
-                self._client = "rest"
-
-    def is_configured(self) -> bool:
-        """Check if an API key is provided and client initialized."""
-        return bool(self.api_key and self._client)
+    def set_provider(self, provider: str, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
+        """Switch AI provider (grok or gemini) and reinitialize."""
+        self.provider = provider.lower()
+        self.api_key = api_key or config.get_api_key(self.provider)
+        self.model = model or config.get_active_model(self.provider)
+        self._init_client()
 
     def set_api_key(self, api_key: str, model: Optional[str] = None) -> None:
         """Update API key and reinitialize."""
@@ -58,6 +49,30 @@ class LLMClient:
         if model:
             self.model = model
         self._init_client()
+
+    def _init_client(self) -> None:
+        """Initialize provider client."""
+        if not self.api_key:
+            self._client = None
+            return
+
+        if self.provider == "grok":
+            self._client = "grok_rest"
+        else:
+            try:
+                from google import genai
+                self._client = genai.Client(api_key=self.api_key)
+            except Exception:
+                try:
+                    import google.generativeai as gai
+                    gai.configure(api_key=self.api_key)
+                    self._client = "legacy"
+                except Exception:
+                    self._client = "rest"
+
+    def is_configured(self) -> bool:
+        """Check if an API key is provided and client initialized."""
+        return bool(self.api_key and self._client)
 
     def _execute_request(
         self,
@@ -68,7 +83,45 @@ class LLMClient:
         is_json: bool = False,
     ) -> str:
         """Execute a single generation request with a specific model."""
-        if self._client == "rest":
+        if self.provider == "grok" or self._client == "grok_rest":
+            import urllib.request
+            import urllib.error
+            url = "https://api.x.ai/v1/chat/completions"
+            messages: List[Dict[str, str]] = []
+            if system_instruction:
+                messages.append({"role": "system", "content": system_instruction})
+            messages.append({"role": "user", "content": prompt})
+
+            payload: Dict[str, Any] = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if is_json:
+                payload["response_format"] = {"type": "json_object"}
+
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+                method="POST"
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+                    choices = resp_data.get("choices", [])
+                    if choices and "message" in choices[0]:
+                        return choices[0]["message"].get("content", "") or ""
+                    return ""
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"xAI Grok API Error ({e.code}): {err_body}")
+
+        elif self._client == "rest":
             import urllib.request
             import urllib.error
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
@@ -172,7 +225,8 @@ class LLMClient:
         """Check if error is due to invalid API key or permission denied."""
         err_str = str(error).lower()
         return any(term in err_str for term in [
-            "401", "unauthenticated", "invalid api key", "api_key_invalid", "403", "permission_denied"
+            "401", "unauthenticated", "invalid api key", "api_key_invalid", "403", "permission_denied",
+            "incorrect api key", "unauthorized", "invalid_api_key"
         ])
 
     def generate(
@@ -183,15 +237,17 @@ class LLMClient:
         max_retries: int = 3,
         is_json: bool = False,
     ) -> str:
-        """Generate text using Gemini with automatic retry and model fallback."""
+        """Generate text using active provider with automatic retry and model fallback."""
+        prov_label = "xAI Grok" if self.provider == "grok" else "Google Gemini"
         if not self.is_configured():
             raise ValueError(
-                "Gemini API Key belum diset! Silakan masukkan API Key Anda di menu Pengaturan atau file .env."
+                f"{prov_label} API Key belum diset! Silakan masukkan API Key Anda di menu Pengaturan atau file .env."
             )
 
-        # Build list of fallback models
+        # Build list of fallback models for active provider
         models_to_try = [self.model]
-        for candidate in config.DEFAULT_MODELS:
+        provider_models = config.get_models_for_provider(self.provider)
+        for candidate in provider_models:
             if candidate not in models_to_try:
                 models_to_try.append(candidate)
 
@@ -199,7 +255,7 @@ class LLMClient:
 
         for model_idx, current_model in enumerate(models_to_try):
             if model_idx > 0:
-                safe_log(f"[GhostWriter] Beralih ke model cadangan: {current_model}...")
+                safe_log(f"[GhostWriter] Beralih ke model cadangan {prov_label}: {current_model}...")
 
             for attempt in range(max_retries):
                 try:
@@ -214,7 +270,7 @@ class LLMClient:
                     last_error = e
 
                     if self._is_auth_error(e):
-                        raise ValueError(f"Gemini API Key tidak valid atau tidak memiliki akses: {e}")
+                        raise ValueError(f"{prov_label} API Key tidak valid atau tidak memiliki akses: {e}")
 
                     if self._is_model_unavailable_error(e):
                         safe_log(f"[GhostWriter] Model '{current_model}' tidak tersedia (404/Deprecated). Mencoba model lain...")
@@ -235,7 +291,7 @@ class LLMClient:
                             break
 
         raise RuntimeError(
-            f"Gagal memanggil Gemini setelah mencoba model {models_to_try}. "
+            f"Gagal memanggil {prov_label} setelah mencoba model {models_to_try}. "
             f"Penyebab terakhir: {last_error}"
         )
 

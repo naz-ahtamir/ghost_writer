@@ -190,5 +190,27 @@ def test_llm_json_extraction_robustness():
     assert res_trunc["overall_synopsis"] == "Cerita cinta rumit"
 
 
+def test_grok_and_gemini_provider_switching():
+    from core.llm import LLMClient
+    import config
+
+    # Test Grok initialization (default prioritized)
+    client = LLMClient(api_key="xai-test-key", provider="grok")
+    assert client.provider == "grok"
+    assert client.model == "grok-2-latest"
+    assert client.is_configured() is True
+    assert client._client == "grok_rest"
+
+    # Test switching to Gemini
+    client.set_provider("gemini", api_key="fake-gemini-key")
+    assert client.provider == "gemini"
+    assert client.model in config.GEMINI_MODELS
+    assert client.is_configured() is True
+
+    # Test switching back to Grok
+    client.set_provider("grok")
+    assert client.provider == "grok"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -25,29 +25,54 @@ from agents.exporter import NovelExporter
 
 
 def manage_settings(llm: LLMClient) -> None:
-    """Configure API key and Gemini model."""
-    print_header("⚙️ Pengaturan Gemini & Model", "Konfigurasi API Key dan model LLM")
+    """Configure AI provider, API key, and model."""
+    print_header("⚙️ Pengaturan AI Engine & Model", "Konfigurasi xAI Grok / Google Gemini")
 
-    curr_key = config.get_api_key()
+    prov = llm.provider
+    prov_name = "xAI Grok (Prioritas)" if prov == "grok" else "Google Gemini"
+    curr_key = llm.api_key
     masked_key = curr_key[:8] + "..." + curr_key[-4:] if len(curr_key) > 12 else (curr_key or "[Belum Diisi]")
+
+    console.print(f"[bold]Provider AI saat ini:[/bold] [bold cyan]{prov_name}[/bold cyan]")
+    console.print(f"[bold]Model saat ini:[/bold] [bold green]{llm.model}[/bold green]")
     console.print(f"[bold]API Key saat ini:[/bold] {masked_key}")
-    console.print(f"[bold]Model saat ini:[/bold] {llm.model}")
 
-    if Confirm.ask("\nApakah Anda ingin memperbarui Gemini API Key?", default=False):
-        new_key = Prompt.ask("[bold cyan]Masukkan Gemini API Key baru[/bold cyan]")
+    console.print("\n[bold cyan]Opsi Pengaturan:[/bold cyan]")
+    console.print("  [white]1.[/white] Ganti Provider AI (xAI Grok / Google Gemini)")
+    console.print("  [white]2.[/white] Masukkan / Ubah API Key")
+    console.print("  [white]3.[/white] Ganti Model AI")
+    console.print("  [white]4.[/white] Kembali")
+
+    opt = Prompt.ask("\nPilih opsi", choices=["1", "2", "3", "4"], default="4")
+    if opt == "1":
+        new_prov = "gemini" if prov == "grok" else "grok"
+        new_name = "Google Gemini" if new_prov == "gemini" else "xAI Grok"
+        if Confirm.ask(f"Beralih ke provider [bold cyan]{new_name}[/bold cyan]?", default=True):
+            new_key = config.get_api_key(new_prov)
+            new_model = config.get_active_model(new_prov)
+            config.save_settings(provider=new_prov, api_key=new_key, model=new_model)
+            llm.set_provider(new_prov, api_key=new_key, model=new_model)
+            console.print(f"[bold green]✓ Provider berhasil diubah ke {new_name}![/bold green]")
+
+    elif opt == "2":
+        prov_label = "xAI (Grok)" if llm.provider == "grok" else "Google Gemini"
+        url_help = "https://console.x.ai" if llm.provider == "grok" else "https://aistudio.google.com/app/apikey"
+        console.print(f"[dim]Dapatkan key di: {url_help}[/dim]")
+        new_key = Prompt.ask(f"[bold cyan]Masukkan {prov_label} API Key baru[/bold cyan]")
         if new_key.strip():
-            config.save_api_key(new_key.strip(), llm.model)
+            config.save_settings(provider=llm.provider, api_key=new_key.strip(), model=llm.model)
             llm.set_api_key(new_key.strip(), llm.model)
-            console.print("[bold green]✓ API Key berhasil disimpan ke file .env![/bold green]")
+            console.print(f"[bold green]✓ {prov_label} API Key berhasil disimpan![/bold green]")
 
-    if Confirm.ask("\nApakah Anda ingin mengganti Model Gemini?", default=False):
-        console.print("\nPilihan Model yang tersedia:")
-        for idx, m in enumerate(config.DEFAULT_MODELS, 1):
+    elif opt == "3":
+        models = config.get_models_for_provider(llm.provider)
+        console.print(f"\nPilihan Model {prov_name} yang tersedia:")
+        for idx, m in enumerate(models, 1):
             console.print(f"  {idx}. [cyan]{m}[/cyan]")
         choice = IntPrompt.ask("Pilih nomor model", default=1)
-        if 1 <= choice <= len(config.DEFAULT_MODELS):
-            selected_model = config.DEFAULT_MODELS[choice - 1]
-            config.save_api_key(llm.api_key, selected_model)
+        if 1 <= choice <= len(models):
+            selected_model = models[choice - 1]
+            config.save_settings(provider=llm.provider, api_key=llm.api_key, model=selected_model)
             llm.model = selected_model
             console.print(f"[bold green]✓ Model diubah ke: {selected_model}[/bold green]")
 
@@ -240,19 +265,40 @@ def export_novel_flow(project: NovelProject) -> None:
 
 
 def check_api_key_prompt(llm: LLMClient) -> None:
-    """Ensure Gemini API key is present, prompt if missing."""
+    """Ensure active provider API key is present, prompt if missing."""
     if not llm.api_key:
-        console.print(Panel(
-            "[bold yellow]⚠️ Gemini API Key Belum Ditemukan![/bold yellow]\n\n"
-            "Untuk menggunakan agen AI dalam merancang dan menulis novel,\n"
-            "Anda memerlukan Gemini API Key (Bisa didapatkan gratis di https://aistudio.google.com/app/apikey).",
-            border_style="yellow",
-        ))
-        key = Prompt.ask("[bold cyan]Masukkan Gemini API Key Anda sekarang (atau tekan Enter untuk lewati)[/bold cyan]", default="")
-        if key.strip():
-            config.save_api_key(key.strip(), llm.model)
-            llm.set_api_key(key.strip())
-            console.print("[bold green]✓ API Key berhasil disimpan![/bold green]\n")
+        if llm.provider == "grok":
+            console.print(Panel(
+                "[bold yellow]⚠️ xAI (Grok) API Key Belum Ditemukan![/bold yellow]\n\n"
+                "GhostWriter diprioritaskan menggunakan engine [bold cyan]xAI Grok[/bold cyan] untuk sastra dan prosa terbaik.\n"
+                "Dapatkan xAI API Key di: [cyan]https://console.x.ai[/cyan]\n\n"
+                "[dim]💡 Jika ingin beralih ke Google Gemini (Gratis), ketik 'gemini' di bawah.[/dim]",
+                title="🔑 Konfigurasi AI Engine (Grok)",
+                border_style="yellow",
+            ))
+            key = Prompt.ask("[bold cyan]Masukkan xAI (Grok) API Key (atau 'gemini' untuk ganti provider)[/bold cyan]", default="")
+            if key.strip().lower() == "gemini":
+                llm.set_provider("gemini")
+                gemini_key = config.get_api_key("gemini")
+                config.save_settings(provider="gemini", api_key=gemini_key, model=llm.model)
+                check_api_key_prompt(llm)
+                return
+            elif key.strip():
+                config.save_settings(provider="grok", api_key=key.strip(), model=llm.model)
+                llm.set_api_key(key.strip())
+                console.print("[bold green]✓ xAI Grok API Key berhasil disimpan![/bold green]\n")
+        else:
+            console.print(Panel(
+                "[bold yellow]⚠️ Google Gemini API Key Belum Ditemukan![/bold yellow]\n\n"
+                "Dapatkan Gemini API Key gratis di: [cyan]https://aistudio.google.com/app/apikey[/cyan]",
+                title="🔑 Konfigurasi AI Engine (Gemini)",
+                border_style="yellow",
+            ))
+            key = Prompt.ask("[bold cyan]Masukkan Gemini API Key Anda (atau tekan Enter untuk lewati)[/bold cyan]", default="")
+            if key.strip():
+                config.save_settings(provider="gemini", api_key=key.strip(), model=llm.model)
+                llm.set_api_key(key.strip())
+                console.print("[bold green]✓ Gemini API Key berhasil disimpan![/bold green]\n")
 
 
 def main() -> None:
@@ -271,6 +317,10 @@ def main() -> None:
     current_project: Optional[NovelProject] = None
 
     while True:
+        # Display active AI engine
+        prov_label = "xAI Grok (Prioritas)" if llm.provider == "grok" else "Google Gemini"
+        console.print(f"[bold blue]🤖 AI Engine:[/bold blue] [bold cyan]{prov_label}[/bold cyan] [dim]({llm.model})[/dim]")
+
         # Display current project status bar
         if current_project:
             title = current_project.metadata.get("title", "Tanpa Judul")
@@ -298,7 +348,7 @@ def main() -> None:
         console.print("  [bold white]5.[/bold white] 📖 Baca Naskah Bab di Terminal")
         console.print("  [bold white]6.[/bold white] 👥 Lihat & Kelola Karakter, World Bible, & Outline")
         console.print("  [bold white]7.[/bold white] 📦 Export Novel (Markdown & Word .docx)")
-        console.print("  [bold white]8.[/bold white] ⚙️ Pengaturan API Key & Model")
+        console.print("  [bold white]8.[/bold white] ⚙️ Pengaturan AI (Grok / Gemini) & Model")
         console.print("  [bold white]9.[/bold white] 🚪 Keluar")
 
         choice = Prompt.ask("\n[bold green]Pilih opsi (1-9)[/bold green]", choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="1")
