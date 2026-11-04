@@ -60,6 +60,58 @@ class NovelProject:
             with open(self.outline_path, "r", encoding="utf-8") as f:
                 self.outline = json.load(f)
 
+    def is_world_bible_complete(self) -> bool:
+        """Check if world bible has essential data."""
+        if not self.world_bible:
+            return False
+        return bool(self.world_bible.get("setting_name") or self.world_bible.get("core_concept"))
+
+    def is_characters_complete(self) -> bool:
+        """Check if character list is populated."""
+        return bool(isinstance(self.characters, list) and len(self.characters) > 0)
+
+    def is_outline_complete(self) -> bool:
+        """Check if outline has planned chapters."""
+        chapters = self.outline.get("chapters", [])
+        return bool(isinstance(chapters, list) and len(chapters) > 0)
+
+    def is_foundation_complete(self) -> bool:
+        """Check if world lore, characters, and chapter outline are all ready."""
+        return (
+            self.is_world_bible_complete()
+            and self.is_characters_complete()
+            and self.is_outline_complete()
+        )
+
+    def get_missing_foundation_components(self) -> List[str]:
+        """Return list of human-readable missing components."""
+        missing = []
+        if not self.is_world_bible_complete():
+            missing.append("World Bible (Latar & Lore)")
+        if not self.is_characters_complete():
+            missing.append("Daftar Karakter")
+        if not self.is_outline_complete():
+            missing.append("Outline Bab")
+        return missing
+
+    def _update_stage(self) -> None:
+        """Update stage based on current project artifacts."""
+        target_ch = self.metadata.get("target_chapters", 0)
+        drafted_ch = len(self.list_drafted_chapters())
+
+        if target_ch > 0 and drafted_ch >= target_ch:
+            self.metadata["stage"] = "completed"
+        elif drafted_ch > 0:
+            self.metadata["stage"] = "writing"
+        elif self.is_foundation_complete():
+            self.metadata["stage"] = "outline_ready"
+        elif self.is_world_bible_complete() and self.is_characters_complete():
+            self.metadata["stage"] = "characters_designed"
+        elif self.is_world_bible_complete():
+            self.metadata["stage"] = "world_designed"
+        else:
+            self.metadata["stage"] = "created"
+
     def save_metadata(self, data: Optional[Dict[str, Any]] = None) -> None:
         """Save project metadata."""
         if data:
@@ -73,6 +125,7 @@ class NovelProject:
         self.world_bible = data
         with open(self.world_bible_path, "w", encoding="utf-8") as f:
             json.dump(self.world_bible, f, indent=2, ensure_ascii=False)
+        self._update_stage()
         self.save_metadata()
 
     def save_characters(self, data: List[Dict[str, Any]]) -> None:
@@ -80,6 +133,7 @@ class NovelProject:
         self.characters = data
         with open(self.characters_path, "w", encoding="utf-8") as f:
             json.dump(self.characters, f, indent=2, ensure_ascii=False)
+        self._update_stage()
         self.save_metadata()
 
     def save_outline(self, data: Dict[str, Any]) -> None:
@@ -87,6 +141,7 @@ class NovelProject:
         self.outline = data
         with open(self.outline_path, "w", encoding="utf-8") as f:
             json.dump(self.outline, f, indent=2, ensure_ascii=False)
+        self._update_stage()
         self.save_metadata()
 
     def get_chapter_file(self, chapter_num: int) -> Path:

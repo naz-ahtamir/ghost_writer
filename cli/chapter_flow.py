@@ -1,5 +1,7 @@
 """Chapter drafting, scene planning, audit, and editing workflow."""
 
+from typing import Optional
+
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.prompt import Prompt, IntPrompt, Confirm
@@ -16,12 +18,23 @@ from agents.writer import WriterAgent
 from agents.editor import EditorAgent
 
 
-def select_chapter_info(project: NovelProject) -> dict:
+def select_chapter_info(project: NovelProject, llm: Optional[LLMClient] = None) -> dict:
     """Prompt user to select a chapter from the outline."""
     chapters = project.outline.get("chapters", [])
     if not chapters:
-        console.print("[red]Outline bab belum tersedia dalam proyek ini.[/red]")
-        return {}
+        console.print("[bold yellow]⚠️ Outline bab belum tersedia dalam proyek ini (Fondasi cerita belum selesai).[/bold yellow]")
+        if llm:
+            if Confirm.ask("[bold cyan]Apakah Anda ingin menjalankan AI Agent sekarang untuk melengkapi fondasi (World Bible, Karakter, & Outline)?[/bold cyan]", default=True):
+                from cli.wizard import resume_project_foundation
+                success = resume_project_foundation(project, llm)
+                if success and project.is_outline_complete():
+                    chapters = project.outline.get("chapters", [])
+                else:
+                    return {}
+            else:
+                return {}
+        else:
+            return {}
 
     drafted = project.list_drafted_chapters()
     display_chapters_table(chapters, drafted)
@@ -52,7 +65,7 @@ def select_chapter_info(project: NovelProject) -> dict:
 
 def write_chapter_flow(project: NovelProject, llm: LLMClient) -> None:
     """Execute the full drafting flow for a chapter."""
-    ch_info = select_chapter_info(project)
+    ch_info = select_chapter_info(project, llm)
     if not ch_info:
         return
 

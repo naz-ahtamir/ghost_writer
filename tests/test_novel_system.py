@@ -106,5 +106,67 @@ def test_project_lifecycle():
         assert docx_file.stat().st_size > 0
 
 
+def test_project_foundation_completion():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        proj_dir = tmp_path / "foundation_novel"
+        proj = NovelProject(proj_dir)
+
+        # Initially empty
+        assert not proj.is_world_bible_complete()
+        assert not proj.is_characters_complete()
+        assert not proj.is_outline_complete()
+        assert not proj.is_foundation_complete()
+        missing = proj.get_missing_foundation_components()
+        assert len(missing) == 3
+
+        # Add world bible
+        proj.save_world_bible({"setting_name": "Surabaya"})
+        assert proj.is_world_bible_complete()
+        assert not proj.is_characters_complete()
+        assert not proj.is_foundation_complete()
+        assert len(proj.get_missing_foundation_components()) == 2
+
+        # Add characters
+        proj.save_characters([{"name": "Maya", "role": "Protagonist"}])
+        assert proj.is_characters_complete()
+        assert not proj.is_outline_complete()
+        assert not proj.is_foundation_complete()
+        assert len(proj.get_missing_foundation_components()) == 1
+
+        # Add outline
+        proj.save_outline({"chapters": [{"chapter_number": 1, "title": "Awal"}]})
+        assert proj.is_outline_complete()
+        assert proj.is_foundation_complete()
+        assert len(proj.get_missing_foundation_components()) == 0
+
+
+def test_llm_json_extraction_robustness():
+    from core.llm import LLMClient
+
+    # Clean JSON
+    assert LLMClient.extract_json('{"key": "value"}') == {"key": "value"}
+
+    # Markdown fence with chatter
+    text_with_fences = (
+        "Here is your result:\n"
+        "```json\n"
+        "{\n"
+        '  "title": "Cincin",\n'
+        '  "count": 22,\n'
+        "}\n"
+        "```\n"
+        "Enjoy!"
+    )
+    res = LLMClient.extract_json(text_with_fences)
+    assert res["title"] == "Cincin"
+    assert res["count"] == 22
+
+    # Unclosed / truncated JSON recovery
+    truncated_json = '{"overall_synopsis": "Cerita cinta rumit", "chapters": [{"chapter_number": 1, "title": "Pertemuan"}'
+    res_trunc = LLMClient.extract_json(truncated_json)
+    assert res_trunc["overall_synopsis"] == "Cerita cinta rumit"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

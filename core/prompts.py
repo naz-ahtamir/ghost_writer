@@ -87,6 +87,10 @@ Karakter Utama:
 World Setting:
 {setting_summary}
 
+PENTING:
+1. Anda WAJIB menghasilkan rincian LENGKAP untuk seluruh {target_chapters} bab (mulai dari chapter_number 1 sampai {target_chapters}) tanpa ada bab yang dilewati.
+2. Buat deskripsi setiap bab (summary, conflict, turning_point) padat, tajam, dan fokus (1-3 kalimat per bab) agar seluruh {target_chapters} bab termuat utuh dalam struktur JSON tanpa terpotong.
+
 Hasilkan output dalam format JSON dengan struktur:
 {{
   "overall_synopsis": "Sinopsis naratif lengkap dari awal hingga akhir novel",

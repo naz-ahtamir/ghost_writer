@@ -34,13 +34,15 @@ class OutlinerAgent:
             f"Lore: {project.world_bible.get('historical_lore', '')}"
         )
 
+        target_chapters = int(meta.get("target_chapters", 12))
+
         system_prompt = OUTLINER_SYSTEM.format(language=lang)
         user_prompt = OUTLINER_USER_TEMPLATE.format(
             title=meta.get("title", ""),
             genre=meta.get("genre", ""),
             tone=meta.get("tone", ""),
             premise=meta.get("premise", ""),
-            target_chapters=meta.get("target_chapters", 12),
+            target_chapters=target_chapters,
             characters_summary=chars_summary,
             setting_summary=world_summary,
         )
@@ -51,11 +53,36 @@ class OutlinerAgent:
             temperature=0.7,
         )
 
-        # Mark all chapters as planned initially
-        if "chapters" in outline_data:
-            for ch in outline_data["chapters"]:
-                if "status" not in ch:
-                    ch["status"] = "planned"
+        if not isinstance(outline_data, dict):
+            outline_data = {"overall_synopsis": "", "narrative_arc": "", "chapters": []}
+
+        chapters = outline_data.get("chapters", [])
+        if not isinstance(chapters, list):
+            chapters = []
+            outline_data["chapters"] = chapters
+
+        # Mark all chapters as planned initially and ensure chapter_number
+        for idx, ch in enumerate(chapters, 1):
+            if "chapter_number" not in ch:
+                ch["chapter_number"] = idx
+            if "status" not in ch:
+                ch["status"] = "planned"
+
+        # If LLM generated fewer chapters than target_chapters, pad missing chapters
+        if len(chapters) < target_chapters:
+            setting_default = project.world_bible.get("setting_name", "Latar Utama")
+            pov_default = chapters[0].get("pov_character", "Protagonis") if chapters else "Protagonis"
+            for num in range(len(chapters) + 1, target_chapters + 1):
+                chapters.append({
+                    "chapter_number": num,
+                    "title": f"Bab {num}: Perjalanan Lanjutan",
+                    "pov_character": pov_default,
+                    "setting": setting_default,
+                    "summary": f"Kelanjutan alur cerita menuju resolusi klimaks Bab {num}.",
+                    "conflict": "Konflik dan rintangan lanjutan.",
+                    "turning_point": "Titik balik perkembangan cerita.",
+                    "status": "planned",
+                })
 
         project.save_outline(outline_data)
         return outline_data

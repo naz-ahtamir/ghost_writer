@@ -52,7 +52,7 @@ def manage_settings(llm: LLMClient) -> None:
             console.print(f"[bold green]✓ Model diubah ke: {selected_model}[/bold green]")
 
 
-def select_existing_project() -> Optional[NovelProject]:
+def select_existing_project(llm: Optional[LLMClient] = None) -> Optional[NovelProject]:
     """Display list of projects and load selected one."""
     projects = ProjectManager.list_projects()
     if not projects:
@@ -64,48 +64,87 @@ def select_existing_project() -> Optional[NovelProject]:
     table.add_column("Judul Novel", style="bold white")
     table.add_column("Genre", style="green")
     table.add_column("Penulis", style="yellow")
-    table.add_column("Status Bab", justify="center")
+    table.add_column("Status Bab & Fondasi", justify="center")
 
+    loaded_projects = []
     for idx, p in enumerate(projects, 1):
         slug = p.get("slug", "")
-        proj_dir = config.PROJECTS_DIR / slug
-        drafted_count = len(list((proj_dir / "chapters").glob("chapter_*.md")))
+        project_obj = ProjectManager.load_project(slug)
+        loaded_projects.append(project_obj)
+        drafted_count = len(project_obj.list_drafted_chapters())
+        target_ch = project_obj.metadata.get("target_chapters", 0)
+
+        if not project_obj.is_foundation_complete():
+            status_desc = "[bold yellow]⚠️ Fondasi Belum Lengkap[/bold yellow]"
+        else:
+            status_desc = f"[bold green]{drafted_count}/{target_ch}[/bold green] bab ditulis"
+
         table.add_row(
             str(idx),
             p.get("title", "Tanpa Judul"),
             p.get("genre", "-"),
             p.get("author", "-"),
-            f"[bold green]{drafted_count}[/bold green] bab ditulis",
+            status_desc,
         )
 
     console.print(table)
     choice = IntPrompt.ask("\nPilih nomor proyek untuk dibuka", default=1)
-    if 1 <= choice <= len(projects):
-        slug = projects[choice - 1]["slug"]
-        project = ProjectManager.load_project(slug)
+    if 1 <= choice <= len(loaded_projects):
+        project = loaded_projects[choice - 1]
         console.print(f"[bold green]✓ Proyek '{project.metadata.get('title')}' berhasil dibuka![/bold green]")
+        if not project.is_foundation_complete():
+            missing = ", ".join(project.get_missing_foundation_components())
+            console.print(f"[bold yellow]⚠️ Perhatian: Fondasi novel ini belum lengkap ({missing}).[/bold yellow]")
+            if llm and Confirm.ask("Apakah Anda ingin melengkapi fondasi novel sekarang?", default=True):
+                from cli.wizard import resume_project_foundation
+                resume_project_foundation(project, llm)
         return project
 
     return None
 
 
-def show_world_and_characters(project: NovelProject) -> None:
-    """View world lore and character bible."""
-    print_header(f"📖 World Lore & Karakter - {project.metadata.get('title')}")
+def show_world_and_characters(project: NovelProject, llm: Optional[LLMClient] = None) -> None:
+    """View world lore, character bible, and outline, with option to resume or regenerate."""
+    print_header(f"📖 World Lore, Karakter & Alur - {project.metadata.get('title')}")
 
     # World details
-    wb = project.world_bible
-    console.print(Panel(
-        f"[bold cyan]Latar:[/bold cyan] {wb.get('setting_name')}\n"
-        f"[bold cyan]Atmosfer:[/bold cyan] {wb.get('atmosphere')}\n"
-        f"[bold cyan]Aturan / Sistem:[/bold cyan] {wb.get('rules_and_systems')}\n"
-        f"[bold cyan]Sejarah / Lore:[/bold cyan] {wb.get('historical_lore')}",
-        title="🏛️ World Bible",
-        border_style="blue",
-    ))
+    if project.is_world_bible_complete():
+        wb = project.world_bible
+        console.print(Panel(
+            f"[bold cyan]Latar:[/bold cyan] {wb.get('setting_name')}\n"
+            f"[bold cyan]Atmosfer:[/bold cyan] {wb.get('atmosphere')}\n"
+            f"[bold cyan]Aturan / Sistem:[/bold cyan] {wb.get('rules_and_systems')}\n"
+            f"[bold cyan]Sejarah / Lore:[/bold cyan] {wb.get('historical_lore')}",
+            title="🏛️ World Bible",
+            border_style="blue",
+        ))
+    else:
+        console.print(Panel("[dim yellow]World Bible belum dibuat untuk proyek ini.[/dim yellow]", title="🏛️ World Bible", border_style="yellow"))
 
     # Characters table
-    display_characters_table(project.characters)
+    if project.is_characters_complete():
+        display_characters_table(project.characters)
+    else:
+        console.print("[dim yellow]👥 Profil Karakter belum dibuat untuk proyek ini.[/dim yellow]")
+
+    # Outline summary
+    if project.is_outline_complete():
+        chapters = project.outline.get("chapters", [])
+        display_chapters_table(chapters, project.list_drafted_chapters())
+    else:
+        console.print("[dim yellow]🗺️ Outline Bab belum dibuat untuk proyek ini.[/dim yellow]")
+
+    # Management options
+    if not project.is_foundation_complete():
+        missing = ", ".join(project.get_missing_foundation_components())
+        console.print(f"\n[bold yellow]⚠️ Fondasi novel ini belum lengkap: {missing}[/bold yellow]")
+        if llm and Confirm.ask("Apakah Anda ingin melengkapi fondasi yang belum ada sekarang?", default=True):
+            from cli.wizard import resume_project_foundation
+            resume_project_foundation(project, llm, force_all=False)
+    else:
+        if llm and Confirm.ask("\nApakah Anda ingin merancang ulang (regenerate) seluruh fondasi novel ini?", default=False):
+            from cli.wizard import resume_project_foundation
+            resume_project_foundation(project, llm, force_all=True)
 
 
 def export_novel_flow(project: NovelProject) -> None:
@@ -147,6 +186,12 @@ def check_api_key_prompt(llm: LLMClient) -> None:
 
 def main() -> None:
     """Application main loop."""
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     print_banner()
 
     llm = LLMClient()
@@ -160,9 +205,16 @@ def main() -> None:
             title = current_project.metadata.get("title", "Tanpa Judul")
             drafted_count = len(current_project.list_drafted_chapters())
             total_target = current_project.metadata.get("target_chapters", 0)
+
+            if not current_project.is_foundation_complete():
+                missing = ", ".join(current_project.get_missing_foundation_components())
+                status_desc = f"[bold yellow]⚠️ Belum Siap: {missing}[/bold yellow]"
+            else:
+                status_desc = f"[bold green]{drafted_count}/{total_target} bab ditulis[/bold green]"
+
             console.print(
                 f"[bold magenta]📍 Proyek Aktif:[/bold magenta] [bold white]{title}[/bold white] "
-                f"([green]{drafted_count}/{total_target} bab[/green])"
+                f"({status_desc})"
             )
         else:
             console.print("[dim]Belum ada proyek aktif yang dipilih.[/dim]")
@@ -173,7 +225,7 @@ def main() -> None:
         console.print("  [bold white]3.[/bold white] ✍️ Tulis / Lanjutkan Bab (Scene Planner + Prose Writer)")
         console.print("  [bold white]4.[/bold white] 🔍 Audit & Edit Bab (Continuity & Style Editor)")
         console.print("  [bold white]5.[/bold white] 📖 Baca Naskah Bab di Terminal")
-        console.print("  [bold white]6.[/bold white] 👥 Lihat Karakter & World Bible")
+        console.print("  [bold white]6.[/bold white] 👥 Lihat & Kelola Karakter, World Bible, & Outline")
         console.print("  [bold white]7.[/bold white] 📦 Export Novel (Markdown & Word .docx)")
         console.print("  [bold white]8.[/bold white] ⚙️ Pengaturan API Key & Model")
         console.print("  [bold white]9.[/bold white] 🚪 Keluar")
@@ -187,7 +239,7 @@ def main() -> None:
                 console.print(f"[bold red]Terjadi kesalahan saat membuat novel:[/bold red] {e}")
 
         elif choice == "2":
-            proj = select_existing_project()
+            proj = select_existing_project(llm)
             if proj:
                 current_project = proj
 
@@ -219,7 +271,7 @@ def main() -> None:
             if not current_project:
                 console.print("[yellow]Buka atau buat proyek novel terlebih dahulu.[/yellow]")
             else:
-                show_world_and_characters(current_project)
+                show_world_and_characters(current_project, llm)
 
         elif choice == "7":
             if not current_project:

@@ -9,6 +9,18 @@ from typing import Any, Dict, List, Optional, Union
 import config
 
 
+def safe_log(message: str) -> None:
+    """Safely log messages to avoid UnicodeEncodeError on Windows terminals."""
+    try:
+        from cli.ui import console
+        console.print(f"[dim yellow]{message}[/dim yellow]")
+    except Exception:
+        try:
+            print(message.encode("ascii", errors="replace").decode("ascii"))
+        except Exception:
+            pass
+
+
 class LLMClient:
     """Unified client for interacting with Google Gemini models."""
 
@@ -85,12 +97,27 @@ class LLMClient:
         err_str = str(error).lower()
         return any(term in err_str for term in ["503", "unavailable", "high demand", "temporarily", "overloaded", "resource_exhausted"])
 
+    def _is_model_unavailable_error(self, error: Exception) -> bool:
+        """Check if error indicates the model is not found, deprecated, or invalid."""
+        err_str = str(error).lower()
+        return any(term in err_str for term in [
+            "404", "not_found", "no longer available", "not found",
+            "is not supported", "invalid model", "does not exist"
+        ])
+
+    def _is_auth_error(self, error: Exception) -> bool:
+        """Check if error is due to invalid API key or permission denied."""
+        err_str = str(error).lower()
+        return any(term in err_str for term in [
+            "401", "unauthenticated", "invalid api key", "api_key_invalid", "403", "permission_denied"
+        ])
+
     def generate(
         self,
         prompt: str,
         system_instruction: Optional[str] = None,
         temperature: float = 0.7,
-        max_retries: int = 4,
+        max_retries: int = 3,
     ) -> str:
         """Generate text using Gemini with automatic retry and model fallback."""
         if not self.is_configured():
@@ -108,7 +135,7 @@ class LLMClient:
 
         for model_idx, current_model in enumerate(models_to_try):
             if model_idx > 0:
-                print(f"\n[GhostWriter] 🔄 Beralih ke model alternatif: {current_model}...")
+                safe_log(f"[GhostWriter] Beralih ke model cadangan: {current_model}...")
 
             for attempt in range(max_retries):
                 try:
@@ -120,17 +147,25 @@ class LLMClient:
                     )
                 except Exception as e:
                     last_error = e
+
+                    if self._is_auth_error(e):
+                        raise ValueError(f"Gemini API Key tidak valid atau tidak memiliki akses: {e}")
+
+                    if self._is_model_unavailable_error(e):
+                        safe_log(f"[GhostWriter] Model '{current_model}' tidak tersedia (404/Deprecated). Mencoba model lain...")
+                        break
+
                     if self._is_overload_error(e):
-                        wait_seconds = 3 * (attempt + 1)
-                        if attempt < max_retries - 1:
-                            print(f"\n[GhostWriter] ⚠️ Server Google untuk {current_model} sedang sibuk (503/High Demand). Mencoba kembali dalam {wait_seconds} detik (percobaan {attempt + 1}/{max_retries})...")
+                        if attempt < 1:
+                            wait_seconds = 2 * (attempt + 1)
+                            safe_log(f"[GhostWriter] Model {current_model} sedang sibuk (503/High Demand). Mencoba kembali dalam {wait_seconds}s...")
                             time.sleep(wait_seconds)
                         else:
-                            # Break inner loop to try next fallback model
+                            safe_log(f"[GhostWriter] Model {current_model} masih sibuk. Mengalihkan ke model alternatif berikutnya...")
                             break
                     else:
                         if attempt < max_retries - 1:
-                            time.sleep(2 ** attempt)
+                            time.sleep(1.5 ** attempt)
                         else:
                             break
 
@@ -160,27 +195,70 @@ class LLMClient:
 
     @staticmethod
     def extract_json(text: str) -> Union[Dict[str, Any], List[Any]]:
-        """Extract and parse JSON from text that might contain markdown fences."""
+        """Extract and parse JSON from text that might contain markdown fences or surrounding comments."""
+        if not text or not text.strip():
+            raise ValueError("Respons dari LLM kosong.")
+
         cleaned = text.strip()
 
-        # Remove markdown code fences if present (```json ... ``` or ``` ...)
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
-            cleaned = re.sub(r"\n?```$", "", cleaned)
-            cleaned = cleaned.strip()
+        # 1. First attempt: Look for ```json ... ``` code fences anywhere in text
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
+        if fence_match:
+            candidate = fence_match.group(1).strip()
+            # Clean trailing commas before closing braces/brackets
+            candidate_cleaned = re.sub(r",\s*([\]}])", r"\1", candidate)
+            try:
+                return json.loads(candidate_cleaned)
+            except json.JSONDecodeError:
+                pass
 
-        # Direct parse attempt
+        # 2. Direct parse attempt after stripping outer fences if any
+        stripped = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+        stripped = re.sub(r"\n?```$", "", stripped).strip()
+        stripped_cleaned = re.sub(r",\s*([\]}])", r"\1", stripped)
         try:
-            return json.loads(cleaned)
+            return json.loads(stripped_cleaned)
         except json.JSONDecodeError:
             pass
 
-        # Search for first JSON object {...} or array [...]
-        match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", cleaned)
-        if match:
-            candidate = match.group(1)
+        # 3. Search for outermost {...} or [...]
+        start_obj = cleaned.find("{")
+        end_obj = cleaned.rfind("}")
+        start_arr = cleaned.find("[")
+        end_arr = cleaned.rfind("]")
+
+        candidates = []
+        if start_obj != -1 and end_obj != -1 and end_obj > start_obj:
+            candidates.append((start_obj, end_obj + 1))
+        if start_arr != -1 and end_arr != -1 and end_arr > start_arr:
+            candidates.append((start_arr, end_arr + 1))
+
+        candidates.sort(key=lambda x: x[0])
+
+        for start, end in candidates:
+            snippet = cleaned[start:end]
+            snippet_cleaned = re.sub(r",\s*([\]}])", r"\1", snippet)
             try:
-                return json.loads(candidate)
+                return json.loads(snippet_cleaned)
+            except json.JSONDecodeError:
+                pass
+
+        # 4. Repair incomplete / cut-off JSON (e.g. unclosed brackets/braces)
+        first_open = -1
+        if start_obj != -1 and (start_arr == -1 or start_obj < start_arr):
+            first_open = start_obj
+        elif start_arr != -1:
+            first_open = start_arr
+
+        if first_open != -1:
+            partial = cleaned[first_open:]
+            partial = re.sub(r",\s*$", "", partial.strip())
+            open_braces = partial.count("{") - partial.count("}")
+            open_brackets = partial.count("[") - partial.count("]")
+            repaired = partial + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
+            repaired_cleaned = re.sub(r",\s*([\]}])", r"\1", repaired)
+            try:
+                return json.loads(repaired_cleaned)
             except json.JSONDecodeError:
                 pass
 
