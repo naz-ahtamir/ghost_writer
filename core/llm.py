@@ -38,14 +38,15 @@ class LLMClient:
         try:
             from google import genai
             self._client = genai.Client(api_key=self.api_key)
-        except Exception as e:
+        except Exception:
             # Fallback to google-generativeai if genai fails
             try:
                 import google.generativeai as gai
                 gai.configure(api_key=self.api_key)
                 self._client = "legacy"
-            except Exception as e2:
-                self._client = None
+            except Exception:
+                # Direct REST API fallback via Python standard library (zero pip dependencies required)
+                self._client = "rest"
 
     def is_configured(self) -> bool:
         """Check if an API key is provided and client initialized."""
@@ -66,7 +67,45 @@ class LLMClient:
         temperature: float = 0.7,
     ) -> str:
         """Execute a single generation request with a specific model."""
-        if self._client == "legacy":
+        if self._client == "rest":
+            import urllib.request
+            import urllib.error
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
+            payload: Dict[str, Any] = {
+                "contents": [
+                    {
+                        "parts": [{"text": prompt}]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": temperature
+                }
+            }
+            if system_instruction:
+                payload["system_instruction"] = {
+                    "parts": [{"text": system_instruction}]
+                }
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+                    candidates = resp_data.get("candidates", [])
+                    if candidates and "content" in candidates[0]:
+                        parts = candidates[0]["content"].get("parts", [])
+                        if parts and "text" in parts[0]:
+                            return parts[0]["text"]
+                    return ""
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"Gemini API Error ({e.code}): {err_body}")
+
+        elif self._client == "legacy":
             import google.generativeai as gai
             model_instance = gai.GenerativeModel(
                 model_name=model_name,
