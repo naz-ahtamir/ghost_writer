@@ -65,22 +65,27 @@ class LLMClient:
         prompt: str,
         system_instruction: Optional[str] = None,
         temperature: float = 0.7,
+        is_json: bool = False,
     ) -> str:
         """Execute a single generation request with a specific model."""
         if self._client == "rest":
             import urllib.request
             import urllib.error
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
+            gen_config: Dict[str, Any] = {
+                "temperature": temperature,
+                "maxOutputTokens": 8192,
+            }
+            if is_json:
+                gen_config["responseMimeType"] = "application/json"
+
             payload: Dict[str, Any] = {
                 "contents": [
                     {
                         "parts": [{"text": prompt}]
                     }
                 ],
-                "generationConfig": {
-                    "temperature": temperature,
-                    "maxOutputTokens": 8192,
-                }
+                "generationConfig": gen_config,
             }
             if system_instruction:
                 payload["system_instruction"] = {
@@ -122,18 +127,22 @@ class LLMClient:
                 model_name=model_name,
                 system_instruction=system_instruction,
             )
+            gen_cfg: Dict[str, Any] = {"temperature": temperature}
+            if is_json:
+                gen_cfg["response_mime_type"] = "application/json"
             response = model_instance.generate_content(
                 prompt,
-                generation_config={"temperature": temperature},
+                generation_config=gen_cfg,
             )
             return response.text or ""
         else:
             from google.genai import types
-            cfg = types.GenerateContentConfig(
-                temperature=temperature,
-            )
+            cfg_kwargs: Dict[str, Any] = {"temperature": temperature}
+            if is_json:
+                cfg_kwargs["response_mime_type"] = "application/json"
             if system_instruction:
-                cfg.system_instruction = system_instruction
+                cfg_kwargs["system_instruction"] = system_instruction
+            cfg = types.GenerateContentConfig(**cfg_kwargs)
 
             response = self._client.models.generate_content(
                 model=model_name,
@@ -172,6 +181,7 @@ class LLMClient:
         system_instruction: Optional[str] = None,
         temperature: float = 0.7,
         max_retries: int = 3,
+        is_json: bool = False,
     ) -> str:
         """Generate text using Gemini with automatic retry and model fallback."""
         if not self.is_configured():
@@ -198,6 +208,7 @@ class LLMClient:
                         prompt=prompt,
                         system_instruction=system_instruction,
                         temperature=temperature,
+                        is_json=is_json,
                     )
                 except Exception as e:
                     last_error = e
@@ -244,6 +255,7 @@ class LLMClient:
             prompt=full_prompt,
             system_instruction=system_instruction,
             temperature=temperature,
+            is_json=True,
         )
         return self.extract_json(response_text)
 
@@ -255,15 +267,18 @@ class LLMClient:
 
         cleaned = text.strip()
 
+        # 0. Clean common JSON issues: remove JS/C++ comments
+        cleaned = re.sub(r"//.*?\n", "\n", cleaned)
+        cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
+
         # 1. First attempt: Look for ```json ... ``` code fences anywhere in text
         fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
         if fence_match:
             candidate = fence_match.group(1).strip()
-            # Clean trailing commas before closing braces/brackets
             candidate_cleaned = re.sub(r",\s*([\]}])", r"\1", candidate)
             try:
-                return json.loads(candidate_cleaned)
-            except json.JSONDecodeError:
+                return json.loads(candidate_cleaned, strict=False)
+            except Exception:
                 pass
 
         # 2. Direct parse attempt after stripping outer fences if any
@@ -271,8 +286,8 @@ class LLMClient:
         stripped = re.sub(r"\n?```$", "", stripped).strip()
         stripped_cleaned = re.sub(r",\s*([\]}])", r"\1", stripped)
         try:
-            return json.loads(stripped_cleaned)
-        except json.JSONDecodeError:
+            return json.loads(stripped_cleaned, strict=False)
+        except Exception:
             pass
 
         # 3. Search for outermost {...} or [...]
@@ -293,11 +308,11 @@ class LLMClient:
             snippet = cleaned[start:end]
             snippet_cleaned = re.sub(r",\s*([\]}])", r"\1", snippet)
             try:
-                return json.loads(snippet_cleaned)
-            except json.JSONDecodeError:
+                return json.loads(snippet_cleaned, strict=False)
+            except Exception:
                 pass
 
-        # 4. Repair incomplete / cut-off JSON (e.g. unclosed brackets/braces)
+        # 4. Repair incomplete / cut-off JSON (e.g. unclosed brackets/braces/quotes)
         first_open = -1
         if start_obj != -1 and (start_arr == -1 or start_obj < start_arr):
             first_open = start_obj
@@ -306,14 +321,18 @@ class LLMClient:
 
         if first_open != -1:
             partial = cleaned[first_open:]
+            # If unterminated string quote, close it
+            num_quotes = len(re.findall(r'(?<!\\)"', partial))
+            if num_quotes % 2 != 0:
+                partial += '"'
             partial = re.sub(r",\s*$", "", partial.strip())
             open_braces = partial.count("{") - partial.count("}")
             open_brackets = partial.count("[") - partial.count("]")
             repaired = partial + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
             repaired_cleaned = re.sub(r",\s*([\]}])", r"\1", repaired)
             try:
-                return json.loads(repaired_cleaned)
-            except json.JSONDecodeError:
+                return json.loads(repaired_cleaned, strict=False)
+            except Exception:
                 pass
 
         raise ValueError(f"Tidak dapat mem-parsing respons menjadi JSON yang valid:\n{text[:300]}...")

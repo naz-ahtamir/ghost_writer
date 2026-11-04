@@ -17,15 +17,15 @@ else:
     load_dotenv()
 
 DEFAULT_MODELS = [
-    "gemini-flash-latest",
     "gemini-flash-lite-latest",
+    "gemini-flash-latest",
     "gemini-3.8-flash",
     "gemini-3.5-flash",
     "gemini-3.7-flash",
     "gemini-pro-latest",
 ]
 
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 DEFAULT_LANGUAGE = os.getenv("NOVEL_DEFAULT_LANGUAGE", "Indonesian")
 
 
