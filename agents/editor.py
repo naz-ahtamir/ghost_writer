@@ -77,7 +77,7 @@ class EditorAgent:
 
         revised_prose = self.llm.generate(
             prompt=prompt,
-            system_instruction=f"Anda adalah Senior Fiction Editor. Bahasa: {lang}",
+            system_instruction=EDITOR_SYSTEM.format(language=lang),
             temperature=0.7,
         )
 

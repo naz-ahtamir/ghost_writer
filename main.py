@@ -30,12 +30,11 @@ def manage_settings(llm: LLMClient) -> None:
 
     prov = llm.provider
     prov_name = "xAI Grok (Prioritas)" if prov == "grok" else "Google Gemini"
-    curr_key = llm.api_key
-    masked_key = curr_key[:8] + "..." + curr_key[-4:] if len(curr_key) > 12 else (curr_key or "[Belum Diisi]")
+    curr_key = llm.api_key or "[Belum Diisi]"
 
     console.print(f"[bold]Provider AI saat ini:[/bold] [bold cyan]{prov_name}[/bold cyan]")
     console.print(f"[bold]Model saat ini:[/bold] [bold green]{llm.model}[/bold green]")
-    console.print(f"[bold]API Key saat ini:[/bold] {masked_key}")
+    console.print(f"[bold]API Key saat ini:[/bold] {curr_key}")
 
     console.print("\n[bold cyan]Opsi Pengaturan:[/bold cyan]")
     console.print("  [white]1.[/white] Ganti Provider AI (xAI Grok / Google Gemini)")

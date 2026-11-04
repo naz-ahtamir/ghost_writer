@@ -51,6 +51,15 @@ def fetch_available_grok_models(api_key: str) -> List[str]:
     return []
 
 
+GEMINI_SAFETY_CATEGORIES = [
+    "HARM_CATEGORY_HARASSMENT",
+    "HARM_CATEGORY_HATE_SPEECH",
+    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    "HARM_CATEGORY_DANGEROUS_CONTENT",
+    "HARM_CATEGORY_CIVIC_INTEGRITY",
+]
+
+
 class LLMClient:
     """Unified client supporting xAI Grok (Prioritized) and Google Gemini."""
 
@@ -177,6 +186,10 @@ class LLMClient:
                     }
                 ],
                 "generationConfig": gen_config,
+                "safetySettings": [
+                    {"category": cat, "threshold": "BLOCK_NONE"}
+                    for cat in GEMINI_SAFETY_CATEGORIES
+                ],
             }
             if system_instruction:
                 payload["system_instruction"] = {
@@ -195,9 +208,6 @@ class LLMClient:
                     candidates = resp_data.get("candidates", [])
                     if candidates and "content" in candidates[0]:
                         candidate = candidates[0]
-                        finish_reason = candidate.get("finishReason")
-                        if finish_reason == "SAFETY":
-                            raise RuntimeError("Respons terblokir oleh Google Safety Filter.")
                         parts = candidate.get("content", {}).get("parts", [])
                         # Concatenate all text parts (filter out thoughts if any)
                         full_text = "".join(
@@ -206,7 +216,8 @@ class LLMClient:
                         )
                         if not full_text:
                             full_text = "".join(p.get("text", "") for p in parts if "text" in p)
-                        return full_text
+                        if full_text:
+                            return full_text
                     return ""
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="replace")
@@ -221,14 +232,29 @@ class LLMClient:
             gen_cfg: Dict[str, Any] = {"temperature": temperature}
             if is_json:
                 gen_cfg["response_mime_type"] = "application/json"
+            safety_cfg = [
+                {"category": cat, "threshold": "BLOCK_NONE"}
+                for cat in GEMINI_SAFETY_CATEGORIES
+            ]
             response = model_instance.generate_content(
                 prompt,
                 generation_config=gen_cfg,
+                safety_settings=safety_cfg,
             )
             return response.text or ""
         else:
             from google.genai import types
-            cfg_kwargs: Dict[str, Any] = {"temperature": temperature}
+            safety_list = [
+                types.SafetySetting(
+                    category=cat,
+                    threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                )
+                for cat in GEMINI_SAFETY_CATEGORIES
+            ]
+            cfg_kwargs: Dict[str, Any] = {
+                "temperature": temperature,
+                "safety_settings": safety_list,
+            }
             if is_json:
                 cfg_kwargs["response_mime_type"] = "application/json"
             if system_instruction:
@@ -369,8 +395,8 @@ class LLMClient:
 
         cleaned = text.strip()
 
-        # 0. Clean common JSON issues: remove JS/C++ comments
-        cleaned = re.sub(r"//.*?\n", "\n", cleaned)
+        # 0. Clean common JSON issues: remove standalone JS/C++ line comments and block comments
+        cleaned = re.sub(r"(?m)^\s*//.*$", "", cleaned)
         cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
 
         # 1. First attempt: Look for ```json ... ``` code fences anywhere in text
