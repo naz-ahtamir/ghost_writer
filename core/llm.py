@@ -21,6 +21,36 @@ def safe_log(message: str) -> None:
             pass
 
 
+def fetch_available_grok_models(api_key: str) -> List[str]:
+    """Dynamically query xAI API for available chat models on this account."""
+    if not api_key:
+        return []
+    import urllib.request
+    import urllib.error
+    url = "https://api.x.ai/v1/models"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key.strip()}",
+        },
+        method="GET"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            chat_models = []
+            for item in data.get("data", []):
+                mid = item.get("id", "")
+                if mid and not any(term in mid.lower() for term in ["image", "embed", "tts"]):
+                    chat_models.append(mid)
+            if chat_models:
+                return chat_models
+    except Exception:
+        pass
+    return []
+
+
 class LLMClient:
     """Unified client supporting xAI Grok (Prioritized) and Google Gemini."""
 
@@ -34,6 +64,7 @@ class LLMClient:
         self.api_key = api_key or config.get_api_key(self.provider)
         self.model = model or config.get_active_model(self.provider)
         self._client = None
+        self.available_models: List[str] = []
         self._init_client()
 
     def set_provider(self, provider: str, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
@@ -51,13 +82,20 @@ class LLMClient:
         self._init_client()
 
     def _init_client(self) -> None:
-        """Initialize provider client."""
+        """Initialize provider client and auto-detect models."""
         if not self.api_key:
             self._client = None
             return
 
         if self.provider == "grok":
             self._client = "grok_rest"
+            live = fetch_available_grok_models(self.api_key)
+            if live:
+                self.available_models = live
+                if self.model not in live:
+                    self.model = live[0]
+            else:
+                self.available_models = config.GROK_MODELS
         else:
             try:
                 from google import genai
@@ -246,7 +284,7 @@ class LLMClient:
 
         # Build list of fallback models for active provider
         models_to_try = [self.model]
-        provider_models = config.get_models_for_provider(self.provider)
+        provider_models = getattr(self, "available_models", None) or config.get_models_for_provider(self.provider)
         for candidate in provider_models:
             if candidate not in models_to_try:
                 models_to_try.append(candidate)

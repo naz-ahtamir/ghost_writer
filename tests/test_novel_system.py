@@ -197,7 +197,7 @@ def test_grok_and_gemini_provider_switching():
     # Test Grok initialization (default prioritized)
     client = LLMClient(api_key="xai-test-key", provider="grok")
     assert client.provider == "grok"
-    assert client.model == "grok-2-latest"
+    assert client.model in config.GROK_MODELS
     assert client.is_configured() is True
     assert client._client == "grok_rest"
 

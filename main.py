@@ -65,7 +65,13 @@ def manage_settings(llm: LLMClient) -> None:
             console.print(f"[bold green]✓ {prov_label} API Key berhasil disimpan![/bold green]")
 
     elif opt == "3":
-        models = config.get_models_for_provider(llm.provider)
+        if llm.provider == "grok" and llm.api_key:
+            from core.llm import fetch_available_grok_models
+            with console.status("[bold cyan]Memeriksa model aktif di akun xAI Anda...[/bold cyan]"):
+                live = fetch_available_grok_models(llm.api_key)
+            models = live if live else config.get_models_for_provider(llm.provider)
+        else:
+            models = config.get_models_for_provider(llm.provider)
         console.print(f"\nPilihan Model {prov_name} yang tersedia:")
         for idx, m in enumerate(models, 1):
             console.print(f"  {idx}. [cyan]{m}[/cyan]")

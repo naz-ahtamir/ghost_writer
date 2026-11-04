@@ -20,11 +20,16 @@ else:
 DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "grok").lower()
 
 GROK_MODELS = [
-    "grok-2-latest",
+    "grok-4.7",
+    "grok-4",
+    "grok-3",
+    "grok-2",
+    "grok-2-1212",
     "grok-2-mini",
+    "grok-2-latest",
     "grok-beta",
 ]
-DEFAULT_GROK_MODEL = os.getenv("GROK_MODEL", "grok-2-latest")
+DEFAULT_GROK_MODEL = os.getenv("GROK_MODEL", "grok-4.7")
 
 GEMINI_MODELS = [
     "gemini-flash-lite-latest",
