@@ -1,5 +1,6 @@
 """Interactive wizard for creating and resuming novel projects."""
 
+import time
 from typing import Optional
 from rich.panel import Panel
 from rich.prompt import Prompt, IntPrompt, Confirm
@@ -82,6 +83,7 @@ def resume_project_foundation(
     # Phase 2: Character Master Agent (Character Bible)
     need_chars = force_all or not project.is_characters_complete()
     if need_chars:
+        time.sleep(2)
         char_master = CharacterMasterAgent(llm)
         try:
             with console.status("[bold cyan]👥 Character Master Agent sedang mendesain profil psikologis para tokoh...[/bold cyan]"):
@@ -98,6 +100,7 @@ def resume_project_foundation(
     # Phase 3: Outliner Agent (Plot & Chapters)
     need_outline = force_all or not project.is_outline_complete()
     if need_outline:
+        time.sleep(2)
         outliner = OutlinerAgent(llm)
         try:
             target_chapters = meta.get("target_chapters", 12)

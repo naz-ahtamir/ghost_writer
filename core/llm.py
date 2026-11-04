@@ -78,7 +78,8 @@ class LLMClient:
                     }
                 ],
                 "generationConfig": {
-                    "temperature": temperature
+                    "temperature": temperature,
+                    "maxOutputTokens": 8192,
                 }
             }
             if system_instruction:
@@ -97,9 +98,19 @@ class LLMClient:
                     resp_data = json.loads(resp.read().decode("utf-8"))
                     candidates = resp_data.get("candidates", [])
                     if candidates and "content" in candidates[0]:
-                        parts = candidates[0]["content"].get("parts", [])
-                        if parts and "text" in parts[0]:
-                            return parts[0]["text"]
+                        candidate = candidates[0]
+                        finish_reason = candidate.get("finishReason")
+                        if finish_reason == "SAFETY":
+                            raise RuntimeError("Respons terblokir oleh Google Safety Filter.")
+                        parts = candidate.get("content", {}).get("parts", [])
+                        # Concatenate all text parts (filter out thoughts if any)
+                        full_text = "".join(
+                            p.get("text", "") for p in parts
+                            if "text" in p and not p.get("thought", False)
+                        )
+                        if not full_text:
+                            full_text = "".join(p.get("text", "") for p in parts if "text" in p)
+                        return full_text
                     return ""
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="replace")
@@ -132,9 +143,13 @@ class LLMClient:
             return response.text or ""
 
     def _is_overload_error(self, error: Exception) -> bool:
-        """Check if error is due to server overload (503, high demand, unavailable)."""
+        """Check if error is due to server overload (503, high demand, unavailable, 429 rate limit)."""
         err_str = str(error).lower()
-        return any(term in err_str for term in ["503", "unavailable", "high demand", "temporarily", "overloaded", "resource_exhausted"])
+        return any(term in err_str for term in [
+            "503", "429", "too many requests", "rate limit",
+            "unavailable", "high demand", "temporarily", "overloaded",
+            "resource_exhausted", "quota"
+        ])
 
     def _is_model_unavailable_error(self, error: Exception) -> bool:
         """Check if error indicates the model is not found, deprecated, or invalid."""
@@ -195,9 +210,9 @@ class LLMClient:
                         break
 
                     if self._is_overload_error(e):
-                        if attempt < 1:
-                            wait_seconds = 2 * (attempt + 1)
-                            safe_log(f"[GhostWriter] Model {current_model} sedang sibuk (503/High Demand). Mencoba kembali dalam {wait_seconds}s...")
+                        if attempt < 2:
+                            wait_seconds = 3 * (attempt + 1)
+                            safe_log(f"[GhostWriter] Model {current_model} sedang sibuk / rate-limited. Mencoba kembali dalam {wait_seconds}s...")
                             time.sleep(wait_seconds)
                         else:
                             safe_log(f"[GhostWriter] Model {current_model} masih sibuk. Mengalihkan ke model alternatif berikutnya...")
