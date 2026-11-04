@@ -270,7 +270,15 @@ class LLMClient:
                     last_error = e
 
                     if self._is_auth_error(e):
-                        raise ValueError(f"{prov_label} API Key tidak valid atau tidak memiliki akses: {e}")
+                        if self.provider == "grok":
+                            raise ValueError(
+                                f"xAI Grok API Key tidak valid atau akun belum memiliki saldo kredit aktif.\n"
+                                f"Pesan dari xAI: {e}\n"
+                                f"💡 Tips: API key Grok harus dibuat di https://console.x.ai dan membutuhkan saldo kredit (bukan langganan X Premium biasa).\n"
+                                f"Jika ingin menggunakan AI gratis, silakan beralih kembali ke Google Gemini di Menu 8."
+                            )
+                        else:
+                            raise ValueError(f"Google Gemini API Key tidak valid atau tidak memiliki akses: {e}")
 
                     if self._is_model_unavailable_error(e):
                         safe_log(f"[GhostWriter] Model '{current_model}' tidak tersedia (404/Deprecated). Mencoba model lain...")
