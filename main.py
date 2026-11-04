@@ -52,12 +52,70 @@ def manage_settings(llm: LLMClient) -> None:
             console.print(f"[bold green]✓ Model diubah ke: {selected_model}[/bold green]")
 
 
-def select_existing_project(llm: Optional[LLMClient] = None) -> Optional[NovelProject]:
-    """Display list of projects and load selected one."""
+def delete_project_flow(current_project: Optional[NovelProject] = None) -> Optional[NovelProject]:
+    """Interactive flow to permanently delete an existing novel project."""
+    projects = ProjectManager.list_projects()
+    if not projects:
+        console.print("[yellow]Belum ada proyek novel yang tersimpan untuk dihapus.[/yellow]")
+        return current_project
+
+    table = Table(title="🗑️ Hapus Proyek Novel", border_style="red")
+    table.add_column("No", justify="center", style="bold red")
+    table.add_column("Judul Novel", style="bold white")
+    table.add_column("Genre", style="green")
+    table.add_column("Penulis", style="yellow")
+    table.add_column("Folder (Slug)", style="dim")
+
+    for idx, p in enumerate(projects, 1):
+        table.add_row(
+            str(idx),
+            p.get("title", "Tanpa Judul"),
+            p.get("genre", "-"),
+            p.get("author", "-"),
+            p.get("slug", "-"),
+        )
+    console.print(table)
+
+    raw_choice = Prompt.ask("\nPilih nomor proyek yang ingin DIHAPUS (atau 'b' untuk batal)", default="b").strip()
+    if raw_choice.lower() in ("b", "batal", "0", ""):
+        console.print("[dim]Penghapusan proyek dibatalkan.[/dim]")
+        return current_project
+
+    if raw_choice.isdigit():
+        idx = int(raw_choice)
+        if 1 <= idx <= len(projects):
+            target = projects[idx - 1]
+            slug = target.get("slug", "")
+            title = target.get("title", slug)
+
+            confirm = Confirm.ask(
+                f"[bold red]⚠️ PERINGATAN: Apakah Anda yakin ingin menghapus seluruh data novel '{title}' secara permanen?[/bold red]",
+                default=False
+            )
+            if confirm:
+                if ProjectManager.delete_project(slug):
+                    console.print(f"[bold green]✓ Proyek '{title}' berhasil dihapus dari perangkat![/bold green]")
+                    if current_project and current_project.project_dir.name == slug:
+                        console.print("[dim yellow]📍 Proyek aktif saat ini telah di-reset (kosong).[/dim yellow]")
+                        return None
+                else:
+                    console.print(f"[bold red]❌ Gagal menghapus folder proyek '{slug}'.[/bold red]")
+            else:
+                console.print("[yellow]Penghapusan dibatalkan.[/yellow]")
+        else:
+            console.print("[yellow]Nomor proyek di luar daftar.[/yellow]")
+    else:
+        console.print("[yellow]Pilihan tidak valid.[/yellow]")
+
+    return current_project
+
+
+def select_existing_project(llm: Optional[LLMClient] = None, current_project: Optional[NovelProject] = None) -> Optional[NovelProject]:
+    """Display list of projects and load selected one, or offer deletion."""
     projects = ProjectManager.list_projects()
     if not projects:
         console.print("[yellow]Belum ada proyek novel yang tersimpan. Silakan buat proyek baru terlebih dahulu.[/yellow]")
-        return None
+        return current_project
 
     table = Table(title="📚 Daftar Proyek Novel", border_style="cyan")
     table.add_column("No", justify="center", style="bold cyan")
@@ -88,19 +146,32 @@ def select_existing_project(llm: Optional[LLMClient] = None) -> Optional[NovelPr
         )
 
     console.print(table)
-    choice = IntPrompt.ask("\nPilih nomor proyek untuk dibuka", default=1)
-    if 1 <= choice <= len(loaded_projects):
-        project = loaded_projects[choice - 1]
-        console.print(f"[bold green]✓ Proyek '{project.metadata.get('title')}' berhasil dibuka![/bold green]")
-        if not project.is_foundation_complete():
-            missing = ", ".join(project.get_missing_foundation_components())
-            console.print(f"[bold yellow]⚠️ Perhatian: Fondasi novel ini belum lengkap ({missing}).[/bold yellow]")
-            if llm and Confirm.ask("Apakah Anda ingin melengkapi fondasi novel sekarang?", default=True):
-                from cli.wizard import resume_project_foundation
-                resume_project_foundation(project, llm)
-        return project
+    raw_choice = Prompt.ask(
+        f"\nPilih nomor proyek untuk dibuka [1-{len(loaded_projects)}] (ketik 'h' untuk Hapus Proyek, 'b' untuk Batal)",
+        default="1"
+    ).strip()
 
-    return None
+    if raw_choice.lower() in ("h", "hapus", "delete", "d"):
+        return delete_project_flow(current_project)
+
+    if raw_choice.lower() in ("b", "batal", "0", ""):
+        return current_project
+
+    if raw_choice.isdigit():
+        choice = int(raw_choice)
+        if 1 <= choice <= len(loaded_projects):
+            project = loaded_projects[choice - 1]
+            console.print(f"[bold green]✓ Proyek '{project.metadata.get('title')}' berhasil dibuka![/bold green]")
+            if not project.is_foundation_complete():
+                missing = ", ".join(project.get_missing_foundation_components())
+                console.print(f"[bold yellow]⚠️ Perhatian: Fondasi novel ini belum lengkap ({missing}).[/bold yellow]")
+                if llm and Confirm.ask("Apakah Anda ingin melengkapi fondasi novel sekarang?", default=True):
+                    from cli.wizard import resume_project_foundation
+                    resume_project_foundation(project, llm)
+            return project
+
+    console.print("[yellow]Pilihan nomor proyek tidak valid.[/yellow]")
+    return current_project
 
 
 def show_world_and_characters(project: NovelProject, llm: Optional[LLMClient] = None) -> None:
@@ -221,7 +292,7 @@ def main() -> None:
 
         console.print("\n[bold cyan]=== MENU UTAMA GHOSTWRITER ===[/bold cyan]")
         console.print("  [bold white]1.[/bold white] 🌟 Buat Proyek Novel Baru (Wizard Multi-Agen)")
-        console.print("  [bold white]2.[/bold white] 📂 Buka Proyek Novel yang Ada")
+        console.print("  [bold white]2.[/bold white] 📂 Buka & Kelola Proyek Novel (Buka / Hapus)")
         console.print("  [bold white]3.[/bold white] ✍️ Tulis / Lanjutkan Bab (Scene Planner + Prose Writer)")
         console.print("  [bold white]4.[/bold white] 🔍 Audit & Edit Bab (Continuity & Style Editor)")
         console.print("  [bold white]5.[/bold white] 📖 Baca Naskah Bab di Terminal")
@@ -239,9 +310,7 @@ def main() -> None:
                 console.print(f"[bold red]Terjadi kesalahan saat membuat novel:[/bold red] {e}")
 
         elif choice == "2":
-            proj = select_existing_project(llm)
-            if proj:
-                current_project = proj
+            current_project = select_existing_project(llm, current_project)
 
         elif choice == "3":
             if not current_project:

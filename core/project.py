@@ -322,3 +322,13 @@ class ProjectManager:
         if not project_dir.exists():
             raise FileNotFoundError(f"Proyek '{slug}' tidak ditemukan.")
         return NovelProject(project_dir)
+
+    @staticmethod
+    def delete_project(slug: str) -> bool:
+        """Delete a novel project directory permanently from disk."""
+        import shutil
+        project_dir = config.PROJECTS_DIR / slug
+        if project_dir.exists() and project_dir.is_dir():
+            shutil.rmtree(project_dir)
+            return True
+        return False

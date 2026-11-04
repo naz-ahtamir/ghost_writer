@@ -141,6 +141,28 @@ def test_project_foundation_completion():
         assert len(proj.get_missing_foundation_components()) == 0
 
 
+def test_delete_project():
+    import config
+    # Create a temporary project inside config.PROJECTS_DIR
+    proj = ProjectManager.create_project(
+        title="Proyek Untuk Dihapus",
+        author="Tester",
+        genre="Fiksi",
+        tone="Ceria",
+        premise="Testing delete.",
+    )
+    slug = proj.project_dir.name
+    assert (config.PROJECTS_DIR / slug).exists()
+
+    # Delete the project
+    success = ProjectManager.delete_project(slug)
+    assert success is True
+    assert not (config.PROJECTS_DIR / slug).exists()
+
+    # Deleting non-existent project returns False
+    assert ProjectManager.delete_project("non_existent_slug_12345") is False
+
+
 def test_llm_json_extraction_robustness():
     from core.llm import LLMClient
 
