@@ -69,6 +69,11 @@ def manage_settings(llm: LLMClient) -> None:
             with console.status("[bold cyan]Memeriksa model aktif di akun xAI Anda...[/bold cyan]"):
                 live = fetch_available_grok_models(llm.api_key)
             models = live if live else config.get_models_for_provider(llm.provider)
+        elif llm.provider == "gemini" and llm.api_key:
+            from core.llm import fetch_available_gemini_models
+            with console.status("[bold cyan]Memeriksa model aktif di akun Google Gemini Anda...[/bold cyan]"):
+                live = fetch_available_gemini_models(llm.api_key)
+            models = live if live else config.get_models_for_provider(llm.provider)
         else:
             models = config.get_models_for_provider(llm.provider)
         console.print(f"\nPilihan Model {prov_name} yang tersedia:")

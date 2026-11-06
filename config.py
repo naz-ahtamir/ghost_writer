@@ -41,26 +41,26 @@ else:
 DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "grok").lower()
 
 GROK_MODELS = [
-    "grok-4.7",
-    "grok-4",
     "grok-3",
-    "grok-2",
-    "grok-2-1212",
-    "grok-2-mini",
+    "grok-3-mini",
     "grok-2-latest",
+    "grok-2-1212",
+    "grok-2",
     "grok-beta",
 ]
-DEFAULT_GROK_MODEL = os.getenv("GROK_MODEL", "grok-4.7")
+DEFAULT_GROK_MODEL = os.getenv("GROK_MODEL", "grok-3")
 
 GEMINI_MODELS = [
-    "gemini-flash-lite-latest",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
     "gemini-flash-latest",
-    "gemini-3.8-flash",
-    "gemini-3.5-flash",
-    "gemini-3.7-flash",
+    "gemini-flash-lite-latest",
+    "gemini-2.5-pro",
     "gemini-pro-latest",
 ]
-DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Fallback alias for backward compatibility
 DEFAULT_MODELS = GROK_MODELS if DEFAULT_PROVIDER == "grok" else GEMINI_MODELS
