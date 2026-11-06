@@ -1,6 +1,5 @@
 """Character Master Agent: Designs psychological character bibles and dynamics."""
 
-import json
 from typing import Any, Dict, List
 from core.llm import LLMClient
 from core.project import NovelProject
@@ -38,8 +37,18 @@ class CharacterMasterAgent:
             temperature=0.75,
         )
 
-        if isinstance(characters_data, dict) and "characters" in characters_data:
-            characters_data = characters_data["characters"]
+        if isinstance(characters_data, dict):
+            unpacked = None
+            for key in ("characters", "cast", "tokoh", "daftar_karakter", "data"):
+                if isinstance(characters_data.get(key), list):
+                    unpacked = characters_data[key]
+                    break
+            if unpacked is None:
+                for val in characters_data.values():
+                    if isinstance(val, list) and val:
+                        unpacked = val
+                        break
+            characters_data = unpacked if unpacked is not None else [characters_data]
 
         if not isinstance(characters_data, list):
             characters_data = [characters_data]

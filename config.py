@@ -2,7 +2,28 @@
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(dotenv_path: Path = None) -> None:
+        """Fallback .env loader when python-dotenv is not installed."""
+        path = Path(dotenv_path) if dotenv_path else Path(".env")
+        if not path.exists():
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+        except Exception:
+            pass
 
 # Base paths
 BASE_DIR = Path(__file__).resolve().parent

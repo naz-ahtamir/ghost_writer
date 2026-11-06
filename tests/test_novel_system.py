@@ -1,9 +1,16 @@
 """Unit tests for GhostWriter Novel System."""
 
+import sys
 import tempfile
 import shutil
 from pathlib import Path
-import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+try:
+    import pytest
+except ImportError:
+    pytest = None
 
 from core.project import NovelProject, ProjectManager, slugify
 from agents.exporter import NovelExporter
@@ -184,10 +191,108 @@ def test_llm_json_extraction_robustness():
     assert res["title"] == "Cincin"
     assert res["count"] == 22
 
-    # Unclosed / truncated JSON recovery
+    # Unclosed / truncated JSON recovery (both object and array nesting)
     truncated_json = '{"overall_synopsis": "Cerita cinta rumit", "chapters": [{"chapter_number": 1, "title": "Pertemuan"}'
     res_trunc = LLMClient.extract_json(truncated_json)
     assert res_trunc["overall_synopsis"] == "Cerita cinta rumit"
+    assert res_trunc["chapters"][0]["title"] == "Pertemuan"
+
+    truncated_arr = '[{"beat_number": 1, "beat_name": "Pembuka"}, {"beat_number": 2, "beat_name": "Konflik'
+    res_arr = LLMClient.extract_json(truncated_arr)
+    assert isinstance(res_arr, list)
+    assert len(res_arr) == 2
+    assert res_arr[1]["beat_name"] == "Konflik"
+
+
+def test_scene_planner_and_beat_by_beat_writer():
+    from agents.scene_planner import ScenePlannerAgent
+    from agents.writer import WriterAgent
+
+    # Test unpacking beats from various JSON shapes (e.g. Grok json_object mode)
+    raw_custom_key = {
+        "scene_beats": [
+            {
+                "beat_number": 1,
+                "beat_name": "Malam di Pelabuhan",
+                "scene_events": "Raka tiba di dermaga gelap dan bertemu informan.",
+                "goal": "Mendapatkan dokumen rahasia",
+                "obstacle": "Informan meminta bayaran dua kali lipat",
+                "sensory_details": "Bau amis laut, kabut dingin, derit kayu dermaga",
+                "emotional_shift": "Dari waspada menjadi marah",
+            },
+            {
+                "beat_number": 2,
+                "beat_name": "Penyergapan",
+                "scene_events": "Terdengar tembakan dari balik kontainer dan Raka membalas serangan.",
+                "goal": "Bertahan hidup dan membawa koper",
+                "obstacle": "Dua penembak bayaran mengepung jalan keluar",
+                "sensory_details": "Kilatan moncong senjata, bau mesiu, darah hangat",
+                "emotional_shift": "Adrenalin memuncak dan nekat",
+            },
+        ]
+    }
+    extracted = ScenePlannerAgent.extract_beats_list(raw_custom_key)
+    assert len(extracted) == 2
+    assert extracted[0]["beat_name"] == "Malam di Pelabuhan"
+    assert "dermaga gelap" in extracted[0]["scene_events"]
+
+    # Mock LLM to verify beat-by-beat execution in WriterAgent
+    class DummyLLM:
+        def __init__(self):
+            self.calls = []
+
+        def generate(self, prompt: str, system_instruction: str = None, temperature: float = 0.7) -> str:
+            self.calls.append(prompt)
+            beat_idx = len(self.calls)
+            if beat_idx == 1:
+                return "# Bab 1: Pertemuan Gelap\n\nParagraf pembuka dermaga yang dingin dan mencekam."
+            return f"# Bab 1: Pertemuan Gelap\n\nParagraf lanjutan untuk beat ke-{beat_idx} yang intens."
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        proj = NovelProject(Path(tmp_dir) / "beat_novel")
+        proj.save_metadata({"title": "Test Beat", "target_words_per_chapter": 1600})
+        proj.save_world_bible({"setting_name": "Jakarta Gelap", "atmosphere": "Noir", "rules_and_systems": "Hukum jalanan"})
+        proj.save_characters([{"name": "Raka", "role": "Protagonist", "flaw": "Brutal"}])
+
+        dummy_llm = DummyLLM()
+        writer = WriterAgent(dummy_llm)
+        progress_steps = []
+
+        prose = writer.write_chapter(
+            project=proj,
+            chapter_info={
+                "chapter_number": 1,
+                "title": "Pertemuan Gelap",
+                "pov_character": "Raka",
+                "setting": "Pelabuhan",
+                "conflict": "Penyergapan",
+                "turning_point": "Informan tewas",
+            },
+            beats=extracted,
+            beat_by_beat=True,
+            progress_callback=lambda idx, total, b: progress_steps.append((idx, total, b["beat_name"])),
+        )
+
+        # Must have called LLM once per beat (2 beats = 2 calls)
+        assert len(dummy_llm.calls) == 2
+        assert len(progress_steps) == 2
+        assert progress_steps[0] == (1, 2, "Malam di Pelabuhan")
+        assert progress_steps[1] == (2, 2, "Penyergapan")
+        # Duplicate '# Bab 1...' header from Beat 2 must be stripped cleanly
+        assert prose.count("# Bab 1: Pertemuan Gelap") == 1
+        assert "Paragraf pembuka dermaga" in prose
+        assert "Paragraf lanjutan untuk beat ke-2" in prose
+        assert len(proj.get_chapter_beats(1)) == 2
+
+
+def test_refusal_detection():
+    from core.llm import LLMClient
+
+    assert LLMClient._is_refusal_response("") is True
+    assert LLMClient._is_refusal_response("Maaf, saya tidak dapat memenuhi permintaan ini karena melanggar kebijakan.") is True
+    assert LLMClient._is_refusal_response("Sebagai AI, saya tidak bisa menulis adegan dewasa.") is True
+    assert LLMClient._is_refusal_response("I'm sorry, I cannot fulfill this request.") is True
+    assert LLMClient._is_refusal_response("# Bab 1: Malam Berdarah\n\nHujan mengguyur aspal jalanan...") is False
 
 
 def test_grok_and_gemini_provider_switching():
@@ -213,4 +318,14 @@ def test_grok_and_gemini_provider_switching():
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    if pytest:
+        pytest.main([__file__])
+    else:
+        test_slugify()
+        test_project_foundation_completion()
+        test_delete_project()
+        test_llm_json_extraction_robustness()
+        test_grok_and_gemini_provider_switching()
+        test_scene_planner_and_beat_by_beat_writer()
+        test_refusal_detection()
+        print("All tests passed!")

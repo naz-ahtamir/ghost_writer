@@ -156,6 +156,16 @@ class NovelProject:
         """Path to chapter audit report json file."""
         return self.chapters_dir / f"chapter_{chapter_num:02d}_audit.json"
 
+    def save_chapter_beats(
+        self,
+        chapter_num: int,
+        beats: List[Dict[str, Any]],
+    ) -> None:
+        """Save chapter scene beats independently."""
+        beats_file = self.get_chapter_beats_file(chapter_num)
+        with open(beats_file, "w", encoding="utf-8") as f:
+            json.dump(beats, f, indent=2, ensure_ascii=False)
+
     def save_chapter(
         self,
         chapter_num: int,
@@ -168,9 +178,7 @@ class NovelProject:
             f.write(content)
 
         if beats:
-            beats_file = self.get_chapter_beats_file(chapter_num)
-            with open(beats_file, "w", encoding="utf-8") as f:
-                json.dump(beats, f, indent=2, ensure_ascii=False)
+            self.save_chapter_beats(chapter_num, beats)
 
         # Update outline status if chapter exists in outline
         if "chapters" in self.outline:
@@ -275,7 +283,7 @@ class ProjectManager:
         genre: str,
         tone: str,
         premise: str,
-        target_audience: str = "Umum / Dewasa Muda",
+        target_audience: str = "Dewasa / Bebas Tanpa Sensor (Uncensored)",
         language: str = "Indonesian",
         target_chapters: int = 15,
         target_words_per_chapter: int = 2000,

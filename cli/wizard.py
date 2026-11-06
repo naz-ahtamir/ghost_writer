@@ -24,6 +24,10 @@ POPULAR_GENRES = {
     "4": "Horor & Gaib",
     "5": "Romance / Drama Emosional",
     "6": "Cyberpunk / Distopia",
+    "7": "Dark Fantasy / Grimdark (Dewasa)",
+    "8": "Romance Dewasa / Erotika (21+ Uncensored)",
+    "9": "Thriller Psikologis / Kriminal Gelap",
+    "10": "Bebas / Eksperimental Tanpa Batas",
 }
 
 
@@ -135,9 +139,14 @@ def run_new_novel_wizard(llm: LLMClient) -> NovelProject:
     title = Prompt.ask("[bold cyan]Judul Novel[/bold cyan]", default="Cakrawala yang Hilang")
     author = Prompt.ask("[bold cyan]Nama Penulis[/bold cyan]", default="Penulis")
 
-    console.print("\n[dim]Pilih Genre populer atau ketik genre kustom Anda:[/dim]")
-    console.print("[dim]1. Fantasi Epik / Sihir  |  2. Fiksi Ilmiah (Sci-Fi)  |  3. Thriller / Misteri Detektif\n4. Horor & Gaib  |  5. Romance / Drama Emosional  |  6. Cyberpunk / Distopia[/dim]")
-    genre_input = Prompt.ask("[bold cyan]Genre[/bold cyan]", default="Fantasi Epik")
+    console.print("\n[dim]Pilih Genre populer atau ketik genre/tema bebas Anda sendiri:[/dim]")
+    console.print(
+        "[dim]1. Fantasi Epik / Sihir  |  2. Fiksi Ilmiah (Sci-Fi)  |  3. Thriller / Misteri Detektif\n"
+        "4. Horor & Gaib  |  5. Romance / Drama Emosional  |  6. Cyberpunk / Distopia\n"
+        "7. Dark Fantasy / Grimdark (Dewasa)  |  8. Romance Dewasa / Erotika (21+ Uncensored)\n"
+        "9. Thriller Psikologis / Kriminal Gelap  |  10. Bebas / Eksperimental Tanpa Batas[/dim]"
+    )
+    genre_input = Prompt.ask("[bold cyan]Genre (ketik nomor 1-10 atau tulis bebas)[/bold cyan]", default="Fantasi Epik")
     if genre_input.strip() in POPULAR_GENRES:
         genre = POPULAR_GENRES[genre_input.strip()]
     else:
