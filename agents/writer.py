@@ -80,6 +80,9 @@ class WriterAgent:
             f"Atmosfer: {project.world_bible.get('atmosphere')}\n"
             f"Aturan Khusus: {project.world_bible.get('rules_and_systems')}\n"
         )
+        source_summary = project.metadata.get("source_summary", "")
+        if source_summary:
+            world_context += f"Referensi Artikel Sumber: {source_summary}\n"
         return characters_context, world_context
 
     def write_chapter(

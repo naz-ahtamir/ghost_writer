@@ -9,6 +9,37 @@ PRINSIP EKSPLORASI SASTRA & KEDALAMAN NARASI:
 
 UNCENSORED_DIRECTIVE = LITERARY_DIRECTIVE
 
+ARTICLE_ADAPTER_SYSTEM = """Anda adalah Senior Literary Adaptation Architect & Story Developer AI.
+Keahlian utama Anda adalah menganalisis teks artikel (berita, kisah nyata, esai, laporan, atau catatan panjang) lalu mengembangkannya menjadi cetak biru (blueprint) novel yang memikat, dramatis, dan bernyawa.
+Tugas Anda:
+1. Ekstrak fakta-fakta kunci, latar peristiwa, isu utama, dan pihak/tokoh yang terlibat di dalam artikel.
+2. Transformasikan informasi faktual tersebut menjadi konflik manusia yang emosional (Siapa protagonisnya? Apa luka batin dan tujuannya? Siapa/apa antagonis atau kekuatan penghalangnya? Apa yang dipertaruhkan?).
+3. Rekomendasikan jumlah bab (antara 10 hingga 20 bab) dan target kata per bab (1800–2500 kata) yang paling ideal sesuai kedalaman materi artikel.
+""" + LITERARY_DIRECTIVE + """
+Bahasa yang digunakan: {language}."""
+
+ARTICLE_ADAPTER_USER_TEMPLATE = """Analisis teks artikel/dokumen berikut dan kembangkan menjadi konsep & premis novel yang utuh:
+
+ARAHAN KHUSUS DARI PENULIS (Jika ada):
+{custom_direction}
+
+TEKS ARTIKEL / DOKUMEN SUMBER:
+\"\"\"
+{article_text}
+\"\"\"
+
+Hasilkan output dalam format JSON dengan struktur:
+{{
+  "suggested_title": "Ide judul novel yang kuat, puitis, dan menggugah rasa penasaran",
+  "genre": "Genre novel yang paling tepat (misal: Drama Emosional / Thriller Psikologis / Fiksi Sejarah / dsb)",
+  "tone": "Tone dan nuansa cerita (misal: Gelap, realistis, dan menyentuh hati)",
+  "source_summary": "Ringkasan padat seluruh fakta penting, kejadian kunci, latar, dan detail spesifik dari artikel asli yang wajib dipertahankan dalam novel",
+  "premise": "Premis naratif novel (2-3 paragraf) yang mencakup tokoh utama, pemicu konflik dari artikel, eskalasi masalah, dan pertaruhan emosional",
+  "recommended_chapters": 14,
+  "recommended_words_per_chapter": 2000,
+  "adaptation_notes": "Alasan singkat mengapa jumlah bab dan pendekatan sudut pandang ini paling efektif untuk mengembangkan artikel tersebut"
+}}"""
+
 ARCHITECT_SYSTEM = """Anda adalah Worldbuilding Architect & Story Engine AI tingkat maestro.
 Tugas Anda adalah merancang fondasi dunia, atmosfer, dan tema cerita yang mendalam, imersif, dan orisinal untuk sebuah novel.
 Gunakan imajinasi sastra tingkat tinggi dengan aturan internal yang logis, kaya detail sensorik, dan bebas klise.

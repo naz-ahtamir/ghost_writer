@@ -317,6 +317,70 @@ def test_grok_and_gemini_provider_switching():
     assert client.provider == "grok"
 
 
+def test_document_loader_and_article_adapter():
+    import zipfile
+    from core.document_loader import load_document_text
+    from agents.article_adapter import ArticleAdapterAgent
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        # 1. Plain text / markdown article
+        txt_file = tmp_path / "artikel_berita.txt"
+        txt_file.write_text(
+            "Seorang nelayan tua di pesisir timur berjuang menyelamatkan desanya dari proyek reklamasi ilegal.",
+            encoding="utf-8",
+        )
+        loaded_txt, stats_txt = load_document_text(str(txt_file))
+        assert "nelayan tua" in loaded_txt
+        assert stats_txt["words"] > 5
+
+        # 2. Zero-dependency .docx extraction via zipfile XML
+        docx_file = tmp_path / "kisah_nyata.docx"
+        sample_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body>"
+            "<w:p><w:r><w:t>Paragraf pertama artikel dari dokumen Word.</w:t></w:r></w:p>"
+            "<w:p><w:r><w:t>Paragraf kedua berisi konflik utama.</w:t></w:r></w:p>"
+            "</w:body></w:document>"
+        )
+        with zipfile.ZipFile(docx_file, "w") as zf:
+            zf.writestr("word/document.xml", sample_xml)
+
+        loaded_docx, stats_docx = load_document_text(str(docx_file))
+        assert "Paragraf pertama artikel" in loaded_docx
+        assert "konflik utama" in loaded_docx
+
+        # 3. ArticleAdapterAgent with mock LLM
+        class DummyAdapterLLM:
+            def generate_json(self, prompt: str, system_instruction: str = None, temperature: float = 0.65):
+                return {
+                    "suggested_title": "Ombak Terakhir di Pesisir Timur",
+                    "genre": "Drama Sosial / Thriller",
+                    "tone": "Emosional dan menegangkan",
+                    "source_summary": "Nelayan tua melawan sindikat reklamasi ilegal.",
+                    "premise": "Pak Darma harus memilih antara uang kompensasi atau masa depan laut desanya.",
+                    "recommended_chapters": 14,
+                    "recommended_words_per_chapter": 2000,
+                    "adaptation_notes": "14 bab ideal untuk membangun eskalasi konflik warga.",
+                }
+
+        adapter = ArticleAdapterAgent(DummyAdapterLLM())
+        blueprint = adapter.analyze_article(loaded_txt, custom_direction="Fokus pada keluarga nelayan")
+        assert blueprint["suggested_title"] == "Ombak Terakhir di Pesisir Timur"
+        assert blueprint["recommended_chapters"] == 14
+        assert "Nelayan tua" in blueprint["combined_premise"]
+
+        # 4. Saving source article in NovelProject
+        proj = NovelProject(tmp_path / "novel_adaptasi")
+        proj.save_metadata({"title": blueprint["suggested_title"]})
+        proj.save_source_article(loaded_txt, source_filename="artikel_berita.txt", source_summary=blueprint["source_summary"])
+        assert proj.get_source_article() == loaded_txt
+        assert proj.metadata["source_file"] == "artikel_berita.txt"
+        assert "Nelayan tua" in proj.metadata["source_summary"]
+
+
 if __name__ == "__main__":
     if pytest:
         pytest.main([__file__])
@@ -328,4 +392,5 @@ if __name__ == "__main__":
         test_grok_and_gemini_provider_switching()
         test_scene_planner_and_beat_by_beat_writer()
         test_refusal_detection()
+        test_document_loader_and_article_adapter()
         print("All tests passed!")

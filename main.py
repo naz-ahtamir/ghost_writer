@@ -351,7 +351,7 @@ def main() -> None:
             console.print("[dim]Belum ada proyek aktif yang dipilih.[/dim]")
 
         console.print("\n[bold cyan]=== MENU UTAMA GHOSTWRITER ===[/bold cyan]")
-        console.print("  [bold white]1.[/bold white] 🌟 Buat Proyek Novel Baru (Wizard Multi-Agen)")
+        console.print("  [bold white]1.[/bold white] 🌟 Buat Proyek Novel Baru (Ide Manual / Upload File Artikel)")
         console.print("  [bold white]2.[/bold white] 📂 Buka & Kelola Proyek Novel (Buka / Hapus)")
         console.print("  [bold white]3.[/bold white] ✍️ Tulis / Lanjutkan Bab (Scene Planner + Prose Writer)")
         console.print("  [bold white]4.[/bold white] 🔍 Audit & Edit Bab (Continuity & Style Editor)")
@@ -365,7 +365,9 @@ def main() -> None:
 
         if choice == "1":
             try:
-                current_project = run_new_novel_wizard(llm)
+                created = run_new_novel_wizard(llm)
+                if created is not None:
+                    current_project = created
             except Exception as e:
                 console.print(f"[bold red]Terjadi kesalahan saat membuat novel:[/bold red] {e}")
 

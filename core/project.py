@@ -29,6 +29,7 @@ class NovelProject:
         self.world_bible_path = self.project_dir / "world_bible.json"
         self.characters_path = self.project_dir / "characters.json"
         self.outline_path = self.project_dir / "outline.json"
+        self.source_article_path = self.project_dir / "source_article.txt"
 
         # Ensure directories exist
         self.project_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +144,24 @@ class NovelProject:
             json.dump(self.outline, f, indent=2, ensure_ascii=False)
         self._update_stage()
         self.save_metadata()
+
+    def save_source_article(self, article_text: str, source_filename: str = "", source_summary: str = "") -> None:
+        """Save raw uploaded article text and summary into the project."""
+        with open(self.source_article_path, "w", encoding="utf-8") as f:
+            f.write(article_text.strip())
+        meta_updates: Dict[str, Any] = {}
+        if source_filename:
+            meta_updates["source_file"] = source_filename
+        if source_summary:
+            meta_updates["source_summary"] = source_summary
+        self.save_metadata(meta_updates)
+
+    def get_source_article(self) -> Optional[str]:
+        """Read full uploaded source article text if present."""
+        if self.source_article_path.exists():
+            with open(self.source_article_path, "r", encoding="utf-8") as f:
+                return f.read()
+        return None
 
     def get_chapter_file(self, chapter_num: int) -> Path:
         """Path to chapter markdown file."""
