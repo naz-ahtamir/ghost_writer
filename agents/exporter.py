@@ -1,55 +1,180 @@
 """Novel Exporter: Compiles manuscript and chapter illustrations into Markdown and DOCX."""
 
 import base64
+import functools
 import html
+import http.server
 import os
 import re
 import shutil
+import socketserver
 import subprocess
+import threading
+import urllib.parse
 import webbrowser
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import config
 from core.project import NovelProject
 from agents.illustrator import IllustratorAgent
 
+_READER_SERVER_PORT: Optional[int] = None
+_READER_SERVER_LOCK = threading.Lock()
 
-def open_file_in_viewer(file_path: Path) -> bool:
-    """Attempt to open a file (.html, .jpg, .docx) in the user's browser or system viewer."""
+
+class _QuietHTTPHandler(http.server.SimpleHTTPRequestHandler):
+    """Quiet HTTP handler serving config.PROJECTS_DIR for mobile/Termux browser access."""
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+
+def ensure_local_reader_server() -> int:
+    """Start a background localhost HTTP server serving PROJECTS_DIR so Android Chrome can open files."""
+    global _READER_SERVER_PORT
+    with _READER_SERVER_LOCK:
+        if _READER_SERVER_PORT is not None:
+            return _READER_SERVER_PORT
+
+        handler_cls = functools.partial(_QuietHTTPHandler, directory=str(config.PROJECTS_DIR.resolve()))
+        for port in range(8765, 8810):
+            try:
+                socketserver.TCPServer.allow_reuse_address = True
+                httpd = socketserver.TCPServer(("127.0.0.1", port), handler_cls)
+                thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+                thread.start()
+                _READER_SERVER_PORT = port
+                return port
+            except OSError:
+                continue
+        raise RuntimeError("Tidak dapat membuka port lokal untuk Web Reader.")
+
+
+def get_local_reader_url(file_path: Path) -> str:
+    """Convert a project file path inside PROJECTS_DIR into an http://127.0.0.1:PORT/... URL."""
     file_path = Path(file_path).resolve()
-    if not file_path.exists():
-        return False
+    projects_root = config.PROJECTS_DIR.resolve()
+    port = ensure_local_reader_server()
+    try:
+        rel = file_path.relative_to(projects_root)
+        rel_url = "/".join(urllib.parse.quote(part) for part in rel.parts)
+        return f"http://127.0.0.1:{port}/{rel_url}"
+    except ValueError:
+        return file_path.as_uri()
 
-    # 1. Android / Termux support
+
+def sync_project_to_public_downloads(project: NovelProject) -> Optional[Path]:
+    """Copy exported novel files (.html, .docx, .md) and illustrations (.jpg) out of Termux private storage into public Download/GhostWriter/."""
+    home = Path.home()
+    candidates = [
+        Path("/sdcard/Download"),
+        Path("/storage/emulated/0/Download"),
+        home / "storage" / "downloads",
+        home / "storage" / "shared" / "Download",
+        home / "Downloads",
+        home / "Download",
+    ]
+
+    target_base: Optional[Path] = None
+    for cand in candidates:
+        try:
+            if cand.exists() and cand.is_dir() and os.access(str(cand), os.W_OK):
+                target_base = cand
+                break
+        except Exception:
+            continue
+
+    if target_base is None:
+        return None
+
+    try:
+        dest_dir = target_base / "GhostWriter" / project.project_dir.name
+        dest_illus = dest_dir / "illustrations"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_illus.mkdir(parents=True, exist_ok=True)
+
+        # Copy all exported files (.html, .docx, .md)
+        if project.exports_dir.exists():
+            for item in project.exports_dir.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, dest_dir / item.name)
+
+        # Copy all rendered illustrations (.jpg, .png)
+        if project.illustrations_dir.exists():
+            for img in project.illustrations_dir.iterdir():
+                if img.is_file():
+                    shutil.copy2(img, dest_illus / img.name)
+
+        return dest_dir
+    except Exception:
+        return None
+
+
+def open_file_in_viewer(file_path: Path) -> str:
+    """Open the file via local HTTP URL (bypasses Android /data/data/com.termux block) and return the URL."""
+    file_path = Path(file_path).resolve()
+    try:
+        url = get_local_reader_url(file_path)
+    except Exception:
+        url = file_path.as_uri()
+
+    # 1. Android Termux URL opener (opens http://127.0.0.1:8765/... in Chrome without file sandbox errors)
+    if shutil.which("termux-open-url"):
+        try:
+            subprocess.Popen(
+                ["termux-open-url", url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return url
+        except Exception:
+            pass
+
+    # 2. Android Activity Manager intent fallback (works on Termux even without termux-api package)
+    if shutil.which("am") and ("com.termux" in str(file_path) or Path("/sdcard").exists()):
+        try:
+            subprocess.Popen(
+                ["am", "start", "--user", "0", "-a", "android.intent.action.VIEW", "-d", url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return url
+        except Exception:
+            pass
+
+    # 3. termux-open with URL
     if shutil.which("termux-open"):
         try:
             subprocess.Popen(
-                ["termux-open", str(file_path)],
+                ["termux-open", url],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            return True
+            return url
         except Exception:
             pass
 
-    # 2. Linux Desktop (xdg-open)
+    # 4. Linux Desktop (xdg-open)
     if shutil.which("xdg-open"):
         try:
             subprocess.Popen(
-                ["xdg-open", str(file_path)],
+                ["xdg-open", url],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            return True
+            return url
         except Exception:
             pass
 
-    # 3. Windows / macOS / Python webbrowser fallback
+    # 5. Python webbrowser fallback
     try:
-        return webbrowser.open(file_path.as_uri())
+        webbrowser.open(url)
     except Exception:
-        return False
+        pass
+
+    return url
 
 
 class NovelExporter:
@@ -59,10 +184,11 @@ class NovelExporter:
         self.project = project
 
     def export_all(self) -> Tuple[Path, Path]:
-        """Export novel to Markdown, DOCX, and Illustrated HTML Reader formats."""
+        """Export novel to Markdown, DOCX, and Illustrated HTML Reader formats, plus sync to public Downloads."""
         md_path = self.export_markdown()
         docx_path = self.export_docx()
         self.export_html()
+        sync_project_to_public_downloads(self.project)
         return md_path, docx_path
 
     def _get_chapter_markdown_with_illustrations(self, chapter_num: int) -> str:
@@ -411,10 +537,13 @@ class NovelExporter:
                             img_src = f"data:{mime};base64,{b64_data}"
                         except Exception:
                             pass
+                    img_name = resolved.name if resolved else Path(img_ref).name
                     ch_elements.append(
                         f'<figure class="illustration-frame">'
                         f'<img src="{img_src}" alt="{html.escape(alt_text)}" loading="lazy"/>'
-                        f'<figcaption class="illus-title">{html.escape(alt_text)}</figcaption>'
+                        f'<figcaption class="illus-title">{html.escape(alt_text)} '
+                        f'&nbsp;|&nbsp; <a href="{img_src}" download="{html.escape(img_name)}" style="color:#9ece6a;text-decoration:none;">📥 Simpan Gambar (.jpg)</a>'
+                        f'</figcaption>'
                         f'</figure>'
                     )
                     continue
@@ -436,6 +565,7 @@ class NovelExporter:
             ch_elements.append("</section>")
             chapters_html_blocks.append("\n".join(ch_elements))
 
+        slug_name = html.escape(self.project.project_dir.name)
         full_html = f"""<!DOCTYPE html>
 <html lang="id">
 <head>
@@ -476,8 +606,10 @@ class NovelExporter:
       z-index: 50;
       background: var(--card);
       border-bottom: 1px solid var(--border);
-      padding: 12px 24px;
+      padding: 12px 20px;
       display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
       justify-content: space-between;
       align-items: center;
       font-family: system-ui, sans-serif;
@@ -490,7 +622,13 @@ class NovelExporter:
       border-radius: 6px;
       cursor: pointer;
       font-weight: 600;
-      font-size: 14px;
+      font-size: 13px;
+      text-decoration: none;
+      display: inline-block;
+    }}
+    .btn-dl {{
+      background: #2ac3de;
+      color: #0f1117;
     }}
     .container {{
       max-width: 820px;
@@ -508,6 +646,14 @@ class NovelExporter:
     .hero h1 {{ margin: 0 0 10px; font-size: 2.2rem; color: var(--accent); }}
     .hero .meta {{ color: var(--muted); font-style: italic; margin-bottom: 18px; }}
     .hero .premise {{ font-size: 1rem; color: var(--text); text-align: left; background: rgba(122,162,247,0.07); padding: 16px; border-radius: 8px; }}
+    .dl-bar {{
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      font-family: system-ui, sans-serif;
+    }}
     .toc {{
       background: var(--card);
       border: 1px solid var(--border);
@@ -581,6 +727,11 @@ class NovelExporter:
       <h1>{title}</h1>
       <div class="meta">Karya: {author} &nbsp;•&nbsp; Genre: {genre}</div>
       <div class="premise">{premise}</div>
+      <div class="dl-bar">
+        <a class="btn btn-dl" href="{slug_name}.docx" download="{slug_name}.docx">📘 Download Word (.docx)</a>
+        <a class="btn btn-dl" href="{ html.escape(out_name) }" download="{ html.escape(out_name) }">🌐 Download E-Book (.html)</a>
+        <a class="btn btn-dl" href="{slug_name}.md" download="{slug_name}.md">📄 Download Markdown (.md)</a>
+      </div>
     </div>
     <div class="toc">
       <h3>📑 Daftar Bab & Ilustrasi</h3>
@@ -596,4 +747,5 @@ class NovelExporter:
         file_path = self.project.exports_dir / out_name
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(full_html)
+        sync_project_to_public_downloads(self.project)
         return file_path

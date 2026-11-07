@@ -26,7 +26,12 @@ from cli.chapter_flow import (
 )
 from core.llm import LLMClient
 from core.project import ProjectManager, NovelProject
-from agents.exporter import NovelExporter, open_file_in_viewer
+from agents.exporter import (
+    NovelExporter,
+    get_local_reader_url,
+    open_file_in_viewer,
+    sync_project_to_public_downloads,
+)
 
 
 def manage_settings(llm: LLMClient) -> None:
@@ -296,24 +301,35 @@ def export_novel_flow(project: NovelProject) -> None:
     with console.status("[bold cyan]📦 Mengompilasi naskah novel & ilustrasi ke HTML Reader, Markdown, dan Word (.docx)...[/bold cyan]"):
         md_file, docx_file = exporter.export_all()
         html_file = exporter.export_html()
+        public_dir = sync_project_to_public_downloads(project)
+        local_url = get_local_reader_url(html_file)
 
     illus_ch_count = len(project.list_illustrated_chapters())
+    public_info = (
+        f"📲 [bold yellow]Folder Download HP (Bisa dibuka di File Manager/Galeri):[/bold yellow]\n"
+        f"   [bold green]{public_dir}[/bold green]\n\n"
+        if public_dir
+        else "[dim yellow]💡 Tips Termux: Di dalam halaman Web Reader sudah tersedia tombol 'Download Word (.docx)' & 'Simpan Gambar (.jpg)' langsung lewat Chrome![/dim yellow]\n\n"
+    )
+
     console.print(Panel(
         f"[bold green]✓ Novel beserta ilustrasinya berhasil diekspor![/bold green]\n\n"
-        f"🌐 [bold]E-Book Web Visual (HTML + Gambar Tertanam):[/bold] [bold cyan]{html_file}[/bold cyan]\n"
-        f"📘 [bold]File Microsoft Word (DOCX + Gambar):[/bold] [cyan]{docx_file}[/cyan]\n"
-        f"📄 [bold]File Markdown (MD):[/bold] [cyan]{md_file}[/cyan]\n"
-        f"🖼️ [bold]Folder File Gambar Asli (.jpg):[/bold] [cyan]{project.illustrations_dir}[/cyan]\n\n"
+        f"🌐 [bold]Link Baca & Download di Browser (Anti-Blokir Termux):[/bold]\n"
+        f"   [bold cyan]{local_url}[/bold cyan]\n\n"
+        f"{public_info}"
+        f"📘 [bold]File Word (DOCX):[/bold] [dim]{docx_file.name}[/dim]\n"
+        f"📄 [bold]File Markdown (MD):[/bold] [dim]{md_file.name}[/dim]\n"
         f"[dim]Total bab yang diekspor: {len(drafted)} bab ({illus_ch_count} bab memiliki ilustrasi).[/dim]",
         title="🎉 Ekspor Berhasil",
         border_style="green",
     ))
 
-    if Confirm.ask("[bold yellow]🌐 Buka E-Book Web Visual (.html) di Browser sekarang untuk melihat cerita & gambarnya?[/bold yellow]", default=True):
-        if open_file_in_viewer(html_file):
-            console.print("[bold green]✓ Membuka E-Book Visual di Browser...[/bold green]")
-        else:
-            console.print(f"[yellow]Silakan klik/buka file ini di Browser: {html_file}[/yellow]")
+    if Confirm.ask(f"[bold yellow]🌐 Buka E-Book Web Visual ({local_url}) di Browser sekarang?[/bold yellow]", default=True):
+        opened_url = open_file_in_viewer(html_file)
+        console.print(
+            f"[bold green]✓ Membuka E-Book Visual di Browser:[/bold green] [bold cyan]{opened_url}[/bold cyan]\n"
+            f"[dim](Jika browser belum terbuka otomatis, cukup ketuk/salin link {opened_url} di atas ke Chrome HP Anda — dari sana Anda juga bisa klik tombol Download .docx & .jpg!)[/dim]"
+        )
 
 
 def check_api_key_prompt(llm: LLMClient) -> None:

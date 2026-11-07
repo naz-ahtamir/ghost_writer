@@ -324,7 +324,25 @@ def write_chapter_flow(project: NovelProject, llm: LLMClient) -> None:
         prose_with_illus = IllustratorAgent.inject_illustrations_into_markdown(prose, illustrations)
         project.save_chapter(ch_num, prose_with_illus)
         display_illustrations_list(illustrations, ch_num)
+
+        from agents.exporter import (
+            NovelExporter,
+            get_local_reader_url,
+            open_file_in_viewer,
+            sync_project_to_public_downloads,
+        )
+        exporter = NovelExporter(project)
+        html_reader_path = exporter.export_html(specific_chapter=ch_num)
+        public_dir = sync_project_to_public_downloads(project)
+        local_url = get_local_reader_url(html_reader_path)
+
         console.print(f"[bold green]✓ 3 Ilustrasi Bab {ch_num} berhasil di-generate dan disisipkan ke naskah![/bold green]")
+        console.print(f"🌐 [bold cyan]Link Baca & Lihat Gambar di Browser:[/bold cyan] [bold white]{local_url}[/bold white]")
+        if public_dir:
+            console.print(f"📲 [bold yellow]Disalin ke Folder Download HP:[/bold yellow] [bold green]{public_dir}[/bold green]")
+
+        if Confirm.ask(f"[bold yellow]🌐 Buka tampilan cerita & 3 ilustrasi Bab {ch_num} di Browser sekarang?[/bold yellow]", default=True):
+            open_file_in_viewer(html_reader_path)
 
         if Confirm.ask("[bold cyan]Ingin mengedit pose/prompt atau me-render ulang salah satu ilustrasi di Studio Ilustrasi?[/bold cyan]", default=False):
             illustrate_chapter_flow(project, llm, specific_chapter=ch_num)
@@ -401,21 +419,40 @@ def view_chapter_flow(project: NovelProject) -> None:
     if illus_list:
         display_illustrations_list(illus_list, num)
 
-    from agents.exporter import NovelExporter, open_file_in_viewer
+    from agents.exporter import (
+        NovelExporter,
+        get_local_reader_url,
+        open_file_in_viewer,
+        sync_project_to_public_downloads,
+    )
     exporter = NovelExporter(project)
     html_reader_path = exporter.export_html(specific_chapter=num)
-    console.print(
-        f"\n[bold green]🌐 Halaman Web Bacaan + Gambar Bab {num} siap di:[/bold green] "
-        f"[bold cyan]{html_reader_path}[/bold cyan]"
-    )
+    public_dir = sync_project_to_public_downloads(project)
+    local_url = get_local_reader_url(html_reader_path)
+
+    info_lines = [
+        f"🌐 [bold green]Link Baca & Lihat Gambar di Browser (Bebas Blokir Termux):[/bold green]\n   [bold cyan]{local_url}[/bold cyan]",
+    ]
+    if public_dir:
+        info_lines.append(
+            f"📂 [bold green]Otomatis Disalin ke Folder Download HP Anda:[/bold green]\n   [bold yellow]{public_dir}[/bold yellow]"
+        )
+    else:
+        info_lines.append(
+            "[dim]💡 Tips Android/Termux: Jalankan perintah `termux-setup-storage` sekali di luar aplikasi jika ingin file otomatis disalin ke /sdcard/Download/GhostWriter/.[/dim]"
+        )
+
+    console.print(Panel("\n\n".join(info_lines), title=f"📲 Akses Mudah Cerita & Ilustrasi Bab {num}", border_style="green"))
+
     if Confirm.ask(
-        f"[bold yellow]Buka tampilan visual Bab {num} beserta gambar ilustrasinya di Browser sekarang?[/bold yellow]",
+        f"[bold yellow]Buka link {local_url} di Browser sekarang?[/bold yellow]",
         default=True,
     ):
-        if open_file_in_viewer(html_reader_path):
-            console.print("[bold green]✓ Membuka cerita & ilustrasi di Browser...[/bold green]")
-        else:
-            console.print(f"[yellow]Silakan buka file berikut di Browser Anda: {html_reader_path}[/yellow]")
+        opened_url = open_file_in_viewer(html_reader_path)
+        console.print(
+            f"[bold green]✓ Membuka di Browser:[/bold green] [bold cyan]{opened_url}[/bold cyan]\n"
+            f"[dim](Jika browser tidak terbuka otomatis, cukup ketuk/salin link {opened_url} di atas ke Chrome Anda!)[/dim]"
+        )
 
 
 def display_illustrations_list(illustrations: List[Dict[str, Any]], ch_num: int) -> None:
@@ -660,6 +697,22 @@ def illustrate_chapter_flow(
                 console.print(f"\n[bold green]✓ Ketiga ilustrasi berhasil di-render dan disisipkan ke dalam naskah Bab {ch_num}![/bold green]")
             else:
                 console.print(f"\n[bold green]✓ Ketiga file gambar ilustrasi Bab {ch_num} berhasil disimpan di folder illustrations/![/bold green]")
+
+            from agents.exporter import (
+                NovelExporter,
+                get_local_reader_url,
+                open_file_in_viewer,
+                sync_project_to_public_downloads,
+            )
+            exporter = NovelExporter(project)
+            html_reader_path = exporter.export_html(specific_chapter=ch_num)
+            public_dir = sync_project_to_public_downloads(project)
+            local_url = get_local_reader_url(html_reader_path)
+            console.print(f"🌐 [bold cyan]Link Lihat di Browser (Bebas Blokir Termux):[/bold cyan] [bold white]{local_url}[/bold white]")
+            if public_dir:
+                console.print(f"📲 [bold yellow]Disalin ke Folder Download HP:[/bold yellow] [bold green]{public_dir}[/bold green]")
+            if Confirm.ask(f"[bold yellow]🌐 Buka {local_url} di Browser sekarang?[/bold yellow]", default=True):
+                open_file_in_viewer(html_reader_path)
 
         elif action == "2":
             slot_choice = IntPrompt.ask("Pilih nomor Ilustrasi yang ingin di-render ulang (1/2/3)", default=1)
