@@ -23,23 +23,27 @@ class NovelProject:
     def __init__(self, project_dir: Path):
         self.project_dir = Path(project_dir)
         self.chapters_dir = self.project_dir / "chapters"
+        self.illustrations_dir = self.project_dir / "illustrations"
         self.exports_dir = self.project_dir / "exports"
 
         self.metadata_path = self.project_dir / "metadata.json"
         self.world_bible_path = self.project_dir / "world_bible.json"
         self.characters_path = self.project_dir / "characters.json"
         self.outline_path = self.project_dir / "outline.json"
+        self.visual_bible_path = self.project_dir / "visual_bible.json"
         self.source_article_path = self.project_dir / "source_article.txt"
 
         # Ensure directories exist
         self.project_dir.mkdir(parents=True, exist_ok=True)
         self.chapters_dir.mkdir(parents=True, exist_ok=True)
+        self.illustrations_dir.mkdir(parents=True, exist_ok=True)
         self.exports_dir.mkdir(parents=True, exist_ok=True)
 
         self.metadata: Dict[str, Any] = {}
         self.world_bible: Dict[str, Any] = {}
         self.characters: List[Dict[str, Any]] = []
         self.outline: Dict[str, Any] = {}
+        self.visual_bible: Dict[str, Any] = {}
 
         self.load()
 
@@ -60,6 +64,16 @@ class NovelProject:
         if self.outline_path.exists():
             with open(self.outline_path, "r", encoding="utf-8") as f:
                 self.outline = json.load(f)
+
+        if self.visual_bible_path.exists():
+            with open(self.visual_bible_path, "r", encoding="utf-8") as f:
+                self.visual_bible = json.load(f)
+
+    def is_visual_bible_complete(self) -> bool:
+        """Check if visual consistency bible is initialized."""
+        if not self.visual_bible:
+            return False
+        return bool(self.visual_bible.get("style_anchor_tags"))
 
     def is_world_bible_complete(self) -> bool:
         """Check if world bible has essential data."""
@@ -145,6 +159,13 @@ class NovelProject:
         self._update_stage()
         self.save_metadata()
 
+    def save_visual_bible(self, data: Dict[str, Any]) -> None:
+        """Save visual consistency bible and character visual DNA."""
+        self.visual_bible = data
+        with open(self.visual_bible_path, "w", encoding="utf-8") as f:
+            json.dump(self.visual_bible, f, indent=2, ensure_ascii=False)
+        self.save_metadata()
+
     def save_source_article(self, article_text: str, source_filename: str = "", source_summary: str = "") -> None:
         """Save raw uploaded article text and summary into the project."""
         with open(self.source_article_path, "w", encoding="utf-8") as f:
@@ -174,6 +195,47 @@ class NovelProject:
     def get_chapter_audit_file(self, chapter_num: int) -> Path:
         """Path to chapter audit report json file."""
         return self.chapters_dir / f"chapter_{chapter_num:02d}_audit.json"
+
+    def get_chapter_illustrations_file(self, chapter_num: int) -> Path:
+        """Path to chapter illustrations metadata json file."""
+        return self.chapters_dir / f"chapter_{chapter_num:02d}_illustrations.json"
+
+    def get_illustration_image_path(
+        self,
+        chapter_num: int,
+        illus_num: int,
+        ext: str = ".jpg",
+    ) -> Path:
+        """Path to rendered illustration image file for a specific chapter and slot."""
+        clean_ext = ext if ext.startswith(".") else f".{ext}"
+        return self.illustrations_dir / f"chapter_{chapter_num:02d}_illus_{illus_num:02d}{clean_ext}"
+
+    def save_chapter_illustrations(
+        self,
+        chapter_num: int,
+        illustrations: List[Dict[str, Any]],
+    ) -> None:
+        """Save chapter illustration blueprints and file paths."""
+        illus_file = self.get_chapter_illustrations_file(chapter_num)
+        with open(illus_file, "w", encoding="utf-8") as f:
+            json.dump(illustrations, f, indent=2, ensure_ascii=False)
+
+    def get_chapter_illustrations(self, chapter_num: int) -> Optional[List[Dict[str, Any]]]:
+        """Read chapter illustrations metadata list."""
+        illus_file = self.get_chapter_illustrations_file(chapter_num)
+        if illus_file.exists():
+            with open(illus_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return None
+
+    def list_illustrated_chapters(self) -> List[int]:
+        """Return list of chapter numbers that have illustration metadata."""
+        numbers = []
+        for file in sorted(self.chapters_dir.glob("chapter_*_illustrations.json")):
+            m = re.match(r"chapter_(\d+)_illustrations\.json", file.name)
+            if m:
+                numbers.append(int(m.group(1)))
+        return sorted(numbers)
 
     def save_chapter_beats(
         self,

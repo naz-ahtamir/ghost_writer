@@ -68,6 +68,69 @@ DEFAULT_MODEL = DEFAULT_GROK_MODEL if DEFAULT_PROVIDER == "grok" else DEFAULT_GE
 
 DEFAULT_LANGUAGE = os.getenv("NOVEL_DEFAULT_LANGUAGE", "Indonesian")
 
+# Illustration / Image Generation Settings
+ILLUSTRATIONS_PER_CHAPTER = int(os.getenv("ILLUSTRATIONS_PER_CHAPTER", "3"))
+IMAGE_WIDTH = int(os.getenv("IMAGE_WIDTH", "1280"))
+IMAGE_HEIGHT = int(os.getenv("IMAGE_HEIGHT", "720"))
+
+IMAGE_PROVIDERS = ["pollinations", "grok", "gemini", "local_sd"]
+DEFAULT_IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "pollinations").strip().lower()
+
+POLLINATIONS_IMAGE_MODELS = [
+    "flux-realism",
+    "flux",
+    "flux-pro",
+    "flux-cablyai",
+    "turbo",
+]
+GROK_IMAGE_MODELS = [
+    "grok-2-image",
+    "grok-2-image-1212",
+]
+GEMINI_IMAGE_MODELS = [
+    "imagen-3.0-generate-002",
+    "gemini-2.0-flash-exp-image-generation",
+]
+LOCAL_SD_IMAGE_MODELS = [
+    "sdxl-realism-uncensored",
+]
+
+DEFAULT_IMAGE_MODEL = os.getenv("IMAGE_MODEL", "flux-realism").strip()
+DEFAULT_SD_API_URL = os.getenv("SD_API_URL", "http://127.0.0.1:7860").strip()
+
+
+def get_image_provider() -> str:
+    """Retrieve active image generation provider."""
+    p = os.getenv("IMAGE_PROVIDER", DEFAULT_IMAGE_PROVIDER).strip().lower()
+    return p if p in IMAGE_PROVIDERS else "pollinations"
+
+
+def get_image_models_for_provider(provider: str = None) -> list:
+    """Return available image models for given image provider."""
+    prov = (provider or get_image_provider()).lower()
+    if prov == "grok":
+        return GROK_IMAGE_MODELS
+    if prov == "gemini":
+        return GEMINI_IMAGE_MODELS
+    if prov == "local_sd":
+        return LOCAL_SD_IMAGE_MODELS
+    return POLLINATIONS_IMAGE_MODELS
+
+
+def get_image_model(provider: str = None) -> str:
+    """Retrieve active image model name."""
+    prov = (provider or get_image_provider()).lower()
+    models = get_image_models_for_provider(prov)
+    current = os.getenv("IMAGE_MODEL", "").strip()
+    if current and current in models:
+        return current
+    return models[0]
+
+
+def get_sd_api_url() -> str:
+    """Retrieve local Stable Diffusion / Forge WebUI URL."""
+    return os.getenv("SD_API_URL", DEFAULT_SD_API_URL).strip()
+
 
 def get_provider() -> str:
     """Retrieve current AI provider (grok or gemini)."""
@@ -113,6 +176,9 @@ def save_settings(
     grok_model = model if provider == "grok" else get_active_model("grok")
     gemini_key = api_key if provider == "gemini" else get_api_key("gemini")
     gemini_model = model if provider == "gemini" else get_active_model("gemini")
+    img_prov = get_image_provider()
+    img_model = get_image_model(img_prov)
+    sd_url = get_sd_api_url()
 
     env_lines = [
         f"AI_PROVIDER={provider}",
@@ -121,6 +187,9 @@ def save_settings(
         f"GEMINI_API_KEY={gemini_key}",
         f"GEMINI_MODEL={gemini_model}",
         f"NOVEL_DEFAULT_LANGUAGE={language}",
+        f"IMAGE_PROVIDER={img_prov}",
+        f"IMAGE_MODEL={img_model}",
+        f"SD_API_URL={sd_url}",
     ]
     with open(ENV_PATH, "w", encoding="utf-8") as f:
         f.write("\n".join(env_lines) + "\n")
@@ -132,6 +201,31 @@ def save_settings(
     os.environ["GEMINI_API_KEY"] = gemini_key
     os.environ["GEMINI_MODEL"] = gemini_model
     os.environ["NOVEL_DEFAULT_LANGUAGE"] = language
+
+
+def save_image_settings(
+    image_provider: str,
+    image_model: str = None,
+    sd_api_url: str = None,
+) -> None:
+    """Save illustration engine settings to .env and environment."""
+    prov = image_provider.strip().lower()
+    if prov not in IMAGE_PROVIDERS:
+        prov = "pollinations"
+    model = (image_model or get_image_model(prov)).strip()
+    url = (sd_api_url or get_sd_api_url()).strip()
+
+    os.environ["IMAGE_PROVIDER"] = prov
+    os.environ["IMAGE_MODEL"] = model
+    os.environ["SD_API_URL"] = url
+
+    # Persist to .env alongside LLM settings
+    active_llm_prov = get_provider()
+    save_settings(
+        provider=active_llm_prov,
+        api_key=get_api_key(active_llm_prov),
+        model=get_active_model(active_llm_prov),
+    )
 
 
 def save_api_key(api_key: str, model: str = None) -> None:

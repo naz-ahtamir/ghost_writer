@@ -381,11 +381,182 @@ def test_document_loader_and_article_adapter():
         assert "Nelayan tua" in proj.metadata["source_summary"]
 
 
+def test_chapter_illustrations_and_visual_consistency():
+    from agents.illustrator import IllustratorAgent
+    from core.image_gen import ImageGeneratorClient
+
+    class DummyIllusLLM:
+        def is_configured(self):
+            return True
+
+        def generate_json(self, prompt: str, system_instruction: str = None, temperature: float = 0.5):
+            if "character_visual_registry" in prompt:
+                return {
+                    "visual_style_preset": "Photorealistic Cinematic 8K Film Still",
+                    "style_anchor_tags": "photorealistic cinematic film still, ARRI Alexa 65, 35mm anamorphic lens, natural skin pores, 8k raw photo",
+                    "color_grading_and_lighting": "moody neo-noir chiaroscuro lighting, warm amber and cold rain reflections",
+                    "environment_visual_rules": "rain-slicked dark streets and industrial docks",
+                    "negative_prompt": "anime, cartoon, cgi, censored, blurred",
+                    "character_visual_registry": [
+                        {
+                            "name": "Raka",
+                            "visual_dna": "Indonesian man, 29 years old, sharp jawline, tan skin, thin scar over left eyebrow, short messy black hair, wearing dark wet leather jacket",
+                            "signature_expression_and_posture": "intense piercing gaze, tense athletic posture",
+                        },
+                        {
+                            "name": "Elena",
+                            "visual_dna": "Eurasian woman, 26 years old, high cheekbones, emerald green eyes, long wavy raven hair, wearing crimson silk dress and black trench coat",
+                            "signature_expression_and_posture": "mysterious confident expression, graceful poise",
+                        },
+                    ],
+                }
+            return {
+                "illustrations": [
+                    {
+                        "illustration_number": 1,
+                        "slot_role": "opening",
+                        "scene_title": "Pertemuan di Dermaga Hujan",
+                        "caption": "Raka menunggu di bawah guyuran hujan dermaga saat Elena melangkah keluar dari kabut.",
+                        "characters_present": ["Raka", "Elena"],
+                        "camera_shot": "Wide cinematic two-shot, 35mm anamorphic lens f/1.8",
+                        "pose_and_action": "Raka standing under dim streetlamp facing Elena, rain dripping from their hair, intense eye contact",
+                        "environment_and_lighting": "wet wooden pier at midnight, heavy rain, neon reflections on puddles",
+                    },
+                    {
+                        "illustration_number": 2,
+                        "slot_role": "middle",
+                        "scene_title": "Konfrontasi Tanpa Jarak",
+                        "caption": "Elena mencengkeram kerah jaket Raka, membisikkan rahasia berbahaya.",
+                        "characters_present": ["Raka", "Elena"],
+                        "camera_shot": "Intimate medium close-up, 50mm Prime lens f/1.4, shallow depth of field",
+                        "pose_and_action": "Elena pulling Raka close by his leather jacket collar, faces inches apart, raw emotional tension",
+                        "environment_and_lighting": "shadowy cargo container alley, dramatic rim lighting on wet skin",
+                    },
+                    {
+                        "illustration_number": 3,
+                        "slot_role": "climax",
+                        "scene_title": "Tembakan di Ambang Malam",
+                        "caption": "Kilatan moncong senjata memecah kegelapan saat Raka melindungi Elena.",
+                        "characters_present": ["Raka", "Elena"],
+                        "camera_shot": "Dynamic low-angle shot, 35mm lens, motion dan sparks",
+                        "pose_and_action": "Raka shielding Elena with his body while drawing his pistol, fierce expression",
+                        "environment_and_lighting": "exploding glass and muzzle flash illuminating the dark dock",
+                    },
+                ]
+            }
+
+    class OfflineMockImageClient(ImageGeneratorClient):
+        def generate_and_save(self, prompt, output_path, negative_prompt="", seed=None, scene_title="", caption="", **kwargs):
+            self._create_storyboard_fallback_image(
+                output_path=Path(output_path),
+                scene_title=scene_title,
+                caption=caption,
+                prompt=prompt,
+                seed=seed or 12345,
+            )
+            return {
+                "status": "rendered",
+                "image_path": str(output_path),
+                "engine": "mock:flux-realism",
+                "seed": seed or 12345,
+            }
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        proj = NovelProject(Path(tmp_dir) / "illustrated_novel")
+        proj.save_metadata({"title": "Bayangan Dermaga", "author": "Penulis", "genre": "Noir Thriller"})
+        proj.save_world_bible({"setting_name": "Pelabuhan Utara", "atmosphere": "Gelap dan hujan"})
+        proj.save_characters([
+            {"name": "Raka", "role": "Protagonist", "appearance": "Pria rahang tegas dengan bekas luka di alis kiri"},
+            {"name": "Elena", "role": "Femme Fatale", "appearance": "Wanita bermata hijau zamrud dengan gaun sutra merah"},
+        ])
+        proj.save_outline({
+            "chapters": [{"chapter_number": 1, "title": "Malam di Dermaga", "pov_character": "Raka", "setting": "Dermaga"}]
+        })
+        sample_prose = (
+            "# Bab 1: Malam di Dermaga\n\n"
+            "Hujan turun deras membasahi kayu dermaga yang tua.\n\n"
+            "Elena muncul dari balik kabut malam dengan tatapan tajam.\n\n"
+            "Ketegangan memuncak ketika keduanya saling berhadapan tanpa jarak.\n\n"
+            "Suara tembakan tiba-tiba memecah keheningan pelabuhan."
+        )
+        proj.save_chapter(1, sample_prose)
+
+        illustrator = IllustratorAgent(DummyIllusLLM(), image_client=OfflineMockImageClient())
+
+        # 1. Verify Visual Bible & Character Visual DNA locking
+        vb = illustrator.ensure_visual_bible(proj)
+        assert proj.is_visual_bible_complete()
+        assert len(vb["character_visual_registry"]) == 2
+        assert "thin scar over left eyebrow" in proj.characters[0]["visual_dna"]
+        assert "emerald green eyes" in proj.characters[1]["visual_dna"]
+
+        # 2. Plan 3 chapter illustrations
+        ch_info = proj.outline["chapters"][0]
+        planned = illustrator.plan_chapter_illustrations(proj, ch_info, count=3)
+        assert len(planned) == 3
+        assert [p["slot_role"] for p in planned] == ["opening", "middle", "climax"]
+        # Both Raka and Elena's locked Visual DNA must be injected into all 3 prompts for consistency
+        for item in planned:
+            assert "thin scar over left eyebrow" in item["image_prompt"]
+            assert "emerald green eyes" in item["image_prompt"]
+            assert "photorealistic cinematic film still" in item["image_prompt"]
+
+        # 3. Render 3 illustrations to disk
+        rendered = illustrator.render_chapter_illustrations(proj, 1, planned)
+        assert len(rendered) == 3
+        for idx, item in enumerate(rendered, 1):
+            img_p = Path(item["image_path"])
+            assert img_p.exists()
+            assert img_p.stat().st_size > 0
+            assert item["status"] == "rendered"
+
+        assert proj.list_illustrated_chapters() == [1]
+
+        # 4. Inject into Markdown idempotently (no duplicates on second call)
+        injected_once = IllustratorAgent.inject_illustrations_into_markdown(sample_prose, rendered)
+        injected_twice = IllustratorAgent.inject_illustrations_into_markdown(injected_once, rendered)
+        assert injected_once == injected_twice
+        assert injected_once.count("chapter_01_illus_01.jpg") == 1
+        assert injected_once.count("chapter_01_illus_02.jpg") == 1
+        assert injected_once.count("chapter_01_illus_03.jpg") == 1
+
+        # 5. Export to Markdown and DOCX with embedded illustrations
+        exporter = NovelExporter(proj)
+        md_file, docx_file = exporter.export_all()
+        assert md_file.exists() and md_file.stat().st_size > 0
+        assert docx_file.exists() and docx_file.stat().st_size > 0
+        md_text = md_file.read_text(encoding="utf-8")
+        assert "chapter_01_illus_01.jpg" in md_text
+        assert "chapter_01_illus_02.jpg" in md_text
+        assert "chapter_01_illus_03.jpg" in md_text
+
+    # 6. Verify Anti-Refusal Prompt Adaptation & Black-Image Detector
+    from core.image_gen import adapt_prompt_for_uncensored_render, is_valid_rendered_image
+    raw_trigger_prompt = "NSFW uncensored explicit scene of Raka and Elena naked having sex on the bed"
+    adapted_l1 = adapt_prompt_for_uncensored_render(raw_trigger_prompt, level=1)
+    assert "nsfw" not in adapted_l1.lower()
+    assert "uncensored" not in adapted_l1.lower()
+    assert "passionate intimate embrace" in adapted_l1.lower()
+    assert "unclothed natural skin silhouette" in adapted_l1.lower()
+
+    # Verify black/blank censored image is rejected by is_valid_rendered_image
+    assert is_valid_rendered_image(b"too_short") is False
+    try:
+        import io
+        from PIL import Image
+        black_buf = io.BytesIO()
+        Image.new("RGB", (256, 256), color=(0, 0, 0)).save(black_buf, format="JPEG")
+        assert is_valid_rendered_image(black_buf.getvalue()) is False
+    except ImportError:
+        pass
+
+
 if __name__ == "__main__":
     if pytest:
         pytest.main([__file__])
     else:
         test_slugify()
+        test_project_lifecycle()
         test_project_foundation_completion()
         test_delete_project()
         test_llm_json_extraction_robustness()
@@ -393,4 +564,5 @@ if __name__ == "__main__":
         test_scene_planner_and_beat_by_beat_writer()
         test_refusal_detection()
         test_document_loader_and_article_adapter()
+        test_chapter_illustrations_and_visual_consistency()
         print("All tests passed!")

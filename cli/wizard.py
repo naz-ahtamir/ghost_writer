@@ -130,10 +130,20 @@ def resume_project_foundation(
     else:
         console.print(f"[dim green]✓ Outline Bab sudah ada ({len(project.outline.get('chapters', []))} bab), mempertahankan data ini.[/dim green]")
 
+    # Phase 4: Visual Continuity Lock (Visual Bible & Character Visual DNA)
+    try:
+        from agents.illustrator import IllustratorAgent
+        illustrator = IllustratorAgent(llm)
+        with console.status("[bold magenta]🧬 Mengunci Visual Bible & Character Visual DNA untuk konsistensi ilustrasi antar-bab...[/bold magenta]"):
+            illustrator.ensure_visual_bible(project, force_regenerate=force_all)
+        console.print("[dim green]✓ Visual Bible & DNA Fisik Karakter telah dikunci (Siap untuk 3 ilustrasi fotorealistis/bab).[/dim green]")
+    except Exception:
+        pass
+
     console.print(
         f"\n[bold green]🎉 Selamat! Fondasi novel '{title}' telah lengkap dan siap ditulis![/bold green]"
     )
-    console.print("[dim]Anda sekarang dapat langsung mulai menulis naskah Bab 1 lewat Menu 3.[/dim]\n")
+    console.print("[dim]Anda sekarang dapat langsung mulai menulis naskah Bab 1 (Menu 3) dan membuat 3 Ilustrasi Bab (Menu 4).[/dim]\n")
     return True
 
 

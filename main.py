@@ -18,7 +18,12 @@ from cli.ui import (
     display_chapters_table,
 )
 from cli.wizard import run_new_novel_wizard
-from cli.chapter_flow import write_chapter_flow, audit_chapter_flow, view_chapter_flow
+from cli.chapter_flow import (
+    write_chapter_flow,
+    audit_chapter_flow,
+    view_chapter_flow,
+    illustrate_chapter_flow,
+)
 from core.llm import LLMClient
 from core.project import ProjectManager, NovelProject
 from agents.exporter import NovelExporter
@@ -31,18 +36,22 @@ def manage_settings(llm: LLMClient) -> None:
     prov = llm.provider
     prov_name = "xAI Grok (Prioritas)" if prov == "grok" else "Google Gemini"
     curr_key = llm.api_key or "[Belum Diisi]"
+    img_prov = config.get_image_provider()
+    img_model = config.get_image_model(img_prov)
 
-    console.print(f"[bold]Provider AI saat ini:[/bold] [bold cyan]{prov_name}[/bold cyan]")
-    console.print(f"[bold]Model saat ini:[/bold] [bold green]{llm.model}[/bold green]")
+    console.print(f"[bold]Provider AI Teks saat ini:[/bold] [bold cyan]{prov_name}[/bold cyan]")
+    console.print(f"[bold]Model Teks saat ini:[/bold] [bold green]{llm.model}[/bold green]")
     console.print(f"[bold]API Key saat ini:[/bold] {curr_key}")
+    console.print(f"[bold]Engine Ilustrasi Gambar:[/bold] [bold magenta]{img_prov.upper()}[/bold magenta] [dim]({img_model})[/dim]")
 
     console.print("\n[bold cyan]Opsi Pengaturan:[/bold cyan]")
-    console.print("  [white]1.[/white] Ganti Provider AI (xAI Grok / Google Gemini)")
+    console.print("  [white]1.[/white] Ganti Provider AI Teks (xAI Grok / Google Gemini)")
     console.print("  [white]2.[/white] Masukkan / Ubah API Key")
-    console.print("  [white]3.[/white] Ganti Model AI")
-    console.print("  [white]4.[/white] Kembali")
+    console.print("  [white]3.[/white] Ganti Model AI Teks")
+    console.print("  [white]4.[/white] Ganti Engine & Model Ilustrasi Gambar (Flux Realism Uncensored / Grok / Gemini / Local SD)")
+    console.print("  [white]5.[/white] Kembali")
 
-    opt = Prompt.ask("\nPilih opsi", choices=["1", "2", "3", "4"], default="4")
+    opt = Prompt.ask("\nPilih opsi", choices=["1", "2", "3", "4", "5"], default="5")
     if opt == "1":
         new_prov = "gemini" if prov == "grok" else "grok"
         new_name = "Google Gemini" if new_prov == "gemini" else "xAI Grok"
@@ -85,6 +94,29 @@ def manage_settings(llm: LLMClient) -> None:
             config.save_settings(provider=llm.provider, api_key=llm.api_key, model=selected_model)
             llm.model = selected_model
             console.print(f"[bold green]✓ Model diubah ke: {selected_model}[/bold green]")
+
+    elif opt == "4":
+        console.print("\n[bold cyan]Pilih Engine Pembuat Gambar Ilustrasi:[/bold cyan]")
+        console.print("  [white]1.[/white] [bold green]Pollinations Flux Realism[/bold green] (Gratis Tanpa API Key, Fotorealistis, Seed-Consistent, Safe=False Uncensored)")
+        console.print("  [white]2.[/white] [bold cyan]xAI Grok Image[/bold cyan] (grok-2-image via GROK_API_KEY)")
+        console.print("  [white]3.[/white] [bold blue]Google Gemini / Imagen 3[/bold blue] (via GEMINI_API_KEY)")
+        console.print("  [white]4.[/white] [bold magenta]Local Stable Diffusion WebUI / Forge API[/bold magenta] (100% Lokal & Uncensored)")
+        eng_opt = Prompt.ask("Pilih nomor engine (1-4)", choices=["1", "2", "3", "4"], default="1")
+        prov_map = {"1": "pollinations", "2": "grok", "3": "gemini", "4": "local_sd"}
+        chosen_prov = prov_map[eng_opt]
+        models = config.get_image_models_for_provider(chosen_prov)
+        chosen_model = models[0]
+        if len(models) > 1:
+            for idx, m in enumerate(models, 1):
+                console.print(f"    {idx}. [cyan]{m}[/cyan]")
+            m_idx = IntPrompt.ask("Pilih model gambar", default=1)
+            if 1 <= m_idx <= len(models):
+                chosen_model = models[m_idx - 1]
+        sd_url = config.get_sd_api_url()
+        if chosen_prov == "local_sd":
+            sd_url = Prompt.ask("Masukkan URL API Stable Diffusion Lokal", default=sd_url)
+        config.save_image_settings(chosen_prov, chosen_model, sd_url)
+        console.print(f"[bold green]✓ Engine Ilustrasi diubah ke: {chosen_prov.upper()} ({chosen_model})[/bold green]")
 
 
 def delete_project_flow(current_project: Optional[NovelProject] = None) -> Optional[NovelProject]:
@@ -261,14 +293,16 @@ def export_novel_flow(project: NovelProject) -> None:
         return
 
     exporter = NovelExporter(project)
-    with console.status("[bold cyan]📦 Mengompilasi naskah novel ke Markdown dan Word (.docx)...[/bold cyan]"):
+    with console.status("[bold cyan]📦 Mengompilasi naskah novel & ilustrasi ke Markdown dan Word (.docx)...[/bold cyan]"):
         md_file, docx_file = exporter.export_all()
 
+    illus_ch_count = len(project.list_illustrated_chapters())
     console.print(Panel(
         f"[bold green]✓ Novel berhasil diekspor![/bold green]\n\n"
         f"📄 [bold]File Markdown:[/bold] [cyan]{md_file}[/cyan]\n"
-        f"📘 [bold]File Word (DOCX):[/bold] [cyan]{docx_file}[/cyan]\n\n"
-        f"[dim]Total bab yang diekspor: {len(drafted)} bab.[/dim]",
+        f"📘 [bold]File Word (DOCX):[/bold] [cyan]{docx_file}[/cyan]\n"
+        f"🖼️ [bold]Folder Ilustrasi:[/bold] [cyan]{project.illustrations_dir}[/cyan]\n\n"
+        f"[dim]Total bab yang diekspor: {len(drafted)} bab ({illus_ch_count} bab memiliki ilustrasi).[/dim]",
         title="🎉 Ekspor Berhasil",
         border_style="green",
     ))
@@ -335,13 +369,17 @@ def main() -> None:
         if current_project:
             title = current_project.metadata.get("title", "Tanpa Judul")
             drafted_count = len(current_project.list_drafted_chapters())
+            illus_count = len(current_project.list_illustrated_chapters())
             total_target = current_project.metadata.get("target_chapters", 0)
 
             if not current_project.is_foundation_complete():
                 missing = ", ".join(current_project.get_missing_foundation_components())
                 status_desc = f"[bold yellow]⚠️ Belum Siap: {missing}[/bold yellow]"
             else:
-                status_desc = f"[bold green]{drafted_count}/{total_target} bab ditulis[/bold green]"
+                status_desc = (
+                    f"[bold green]{drafted_count}/{total_target} bab ditulis[/bold green] | "
+                    f"[bold magenta]{illus_count} bab berilustrasi[/bold magenta]"
+                )
 
             console.print(
                 f"[bold magenta]📍 Proyek Aktif:[/bold magenta] [bold white]{title}[/bold white] "
@@ -354,14 +392,19 @@ def main() -> None:
         console.print("  [bold white]1.[/bold white] 🌟 Buat Proyek Novel Baru (Ide Manual / Upload File Artikel)")
         console.print("  [bold white]2.[/bold white] 📂 Buka & Kelola Proyek Novel (Buka / Hapus)")
         console.print("  [bold white]3.[/bold white] ✍️ Tulis / Lanjutkan Bab (Scene Planner + Prose Writer)")
-        console.print("  [bold white]4.[/bold white] 🔍 Audit & Edit Bab (Continuity & Style Editor)")
-        console.print("  [bold white]5.[/bold white] 📖 Baca Naskah Bab di Terminal")
-        console.print("  [bold white]6.[/bold white] 👥 Lihat & Kelola Karakter, World Bible, & Outline")
-        console.print("  [bold white]7.[/bold white] 📦 Export Novel (Markdown & Word .docx)")
-        console.print("  [bold white]8.[/bold white] ⚙️ Pengaturan AI (Grok / Gemini) & Model")
-        console.print("  [bold white]9.[/bold white] 🚪 Keluar")
+        console.print("  [bold white]4.[/bold white] 🎨 Buat & Kelola Ilustrasi Bab (3 Ilustrasi Realistis, Konsisten & Tanpa Sensor)")
+        console.print("  [bold white]5.[/bold white] 🔍 Audit & Edit Bab (Continuity & Style Editor)")
+        console.print("  [bold white]6.[/bold white] 📖 Baca Naskah Bab di Terminal")
+        console.print("  [bold white]7.[/bold white] 👥 Lihat & Kelola Karakter, World Bible, & Outline")
+        console.print("  [bold white]8.[/bold white] 📦 Export Novel + Ilustrasi (Markdown & Word .docx)")
+        console.print("  [bold white]9.[/bold white] ⚙️ Pengaturan AI (Grok / Gemini / Engine Ilustrasi)")
+        console.print("  [bold white]10.[/bold white] 🚪 Keluar")
 
-        choice = Prompt.ask("\n[bold green]Pilih opsi (1-9)[/bold green]", choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="1")
+        choice = Prompt.ask(
+            "\n[bold green]Pilih opsi (1-10)[/bold green]",
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+            default="1",
+        )
 
         if choice == "1":
             try:
@@ -385,6 +428,15 @@ def main() -> None:
 
         elif choice == "4":
             if not current_project:
+                console.print("[yellow]Buka atau buat proyek novel terlebih dahulu (Opsi 1 atau 2).[/yellow]")
+            else:
+                try:
+                    illustrate_chapter_flow(current_project, llm)
+                except Exception as e:
+                    console.print(f"[bold red]Terjadi kesalahan saat mengelola ilustrasi bab:[/bold red] {e}")
+
+        elif choice == "5":
+            if not current_project:
                 console.print("[yellow]Buka atau buat proyek novel terlebih dahulu.[/yellow]")
             else:
                 try:
@@ -392,19 +444,19 @@ def main() -> None:
                 except Exception as e:
                     console.print(f"[bold red]Terjadi kesalahan saat audit bab:[/bold red] {e}")
 
-        elif choice == "5":
+        elif choice == "6":
             if not current_project:
                 console.print("[yellow]Buka atau buat proyek novel terlebih dahulu.[/yellow]")
             else:
                 view_chapter_flow(current_project)
 
-        elif choice == "6":
+        elif choice == "7":
             if not current_project:
                 console.print("[yellow]Buka atau buat proyek novel terlebih dahulu.[/yellow]")
             else:
                 show_world_and_characters(current_project, llm)
 
-        elif choice == "7":
+        elif choice == "8":
             if not current_project:
                 console.print("[yellow]Buka atau buat proyek novel terlebih dahulu.[/yellow]")
             else:
@@ -413,10 +465,10 @@ def main() -> None:
                 except Exception as e:
                     console.print(f"[bold red]Terjadi kesalahan saat ekspor:[/bold red] {e}")
 
-        elif choice == "8":
+        elif choice == "9":
             manage_settings(llm)
 
-        elif choice == "9":
+        elif choice == "10":
             console.print("\n[bold cyan]Terima kasih telah menggunakan GhostWriter AI! Selamat berkarya.[/bold cyan] 🖋️\n")
             break
 
