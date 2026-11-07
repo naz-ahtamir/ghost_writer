@@ -198,15 +198,38 @@ def is_valid_rendered_image(img_bytes: bytes) -> bool:
 
 def normalize_to_jpeg_bytes(img_bytes: bytes) -> bytes:
     """Convert WebP/PNG/JPEG bytes into high-quality standard RGB JPEG bytes for Word & Browser compatibility."""
+    if not img_bytes:
+        return img_bytes
     try:
         from PIL import Image
         with Image.open(io.BytesIO(img_bytes)) as img:
             rgb = img.convert("RGB")
             out = io.BytesIO()
-            rgb.save(out, format="JPEG", quality=95)
+            rgb.save(out, format="JPEG", quality=95, jfif_version=(1, 1), dpi=(96, 96))
             return out.getvalue()
     except Exception:
+        pass
+
+    if img_bytes.startswith(b"\xff\xd8\xff"):
         return img_bytes
+
+    # Fallback: use ffmpeg CLI if installed on Termux/Linux when Pillow is absent
+    import shutil
+    import subprocess
+    if shutil.which("ffmpeg"):
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-f", "image2", "-vcodec", "mjpeg", "-q:v", "2", "pipe:1"],
+                input=img_bytes,
+                capture_output=True,
+                timeout=15,
+            )
+            if proc.returncode == 0 and proc.stdout.startswith(b"\xff\xd8\xff"):
+                return proc.stdout
+        except Exception:
+            pass
+
+    return img_bytes
 
 
 class ImageGeneratorClient:
@@ -301,7 +324,24 @@ class ImageGeneratorClient:
                                 headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) GhostWriterAI/2.5"},
                             )
                             with urllib.request.urlopen(img_req, timeout=30, context=ctx) as img_resp:
-                                return img_resp.read()
+                                raw_bytes = img_resp.read()
+                            jpg_bytes = normalize_to_jpeg_bytes(raw_bytes)
+                            if not jpg_bytes.startswith(b"\xff\xd8\xff") and img_url.startswith("http"):
+                                # Zero-dependency WebP-to-JPEG conversion for Android Termux without Pillow/ffmpeg
+                                try:
+                                    encoded_u = urllib.parse.quote(img_url, safe="")
+                                    wsrv_url = f"https://wsrv.nl/?url={encoded_u}&output=jpg&q=95"
+                                    wsrv_req = urllib.request.Request(
+                                        wsrv_url,
+                                        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) GhostWriterAI/2.5"},
+                                    )
+                                    with urllib.request.urlopen(wsrv_req, timeout=25, context=ctx) as wsrv_resp:
+                                        candidate_jpg = wsrv_resp.read()
+                                        if candidate_jpg.startswith(b"\xff\xd8\xff"):
+                                            return candidate_jpg
+                                except Exception:
+                                    pass
+                            return jpg_bytes
 
         raise RuntimeError(f"Stream selesai tanpa gambar dari {node['name']}")
 

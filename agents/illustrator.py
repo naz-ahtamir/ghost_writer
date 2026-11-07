@@ -703,24 +703,27 @@ class IllustratorAgent:
     ) -> str:
         """Embed the 3 illustrations at Opening, Middle, and Climax positions of a chapter's Markdown."""
         clean_prose = cls.strip_injected_illustrations(prose)
-        if not illustrations or not clean_prose:
-            return clean_prose
-
-        paragraphs = [p.strip() for p in clean_prose.split("\n\n") if p.strip()]
-        if not paragraphs:
+        if not illustrations:
             return clean_prose
 
         def _format_md_block(item: Dict[str, Any]) -> str:
-            img_file = Path(item.get("image_path", "")).name
+            raw_img_path = item.get("image_path") or f"chapter_01_illus_{int(item.get('illustration_number', 1)):02d}.jpg"
+            img_file = Path(raw_img_path).name
             rel_path = f"{relative_dir}/{img_file}" if relative_dir else img_file
-            title = item.get("scene_title", f"Ilustrasi {item.get('illustration_number', 1)}")
-            caption = item.get("caption", title)
+            raw_title = item.get("scene_title") or f"Ilustrasi {item.get('illustration_number', 1)}"
+            title = re.sub(r"[\[\]\r\n]+", " ", str(raw_title)).strip()
+            raw_caption = item.get("caption") or title
+            caption = re.sub(r"[\r\n\*]+", " ", str(raw_caption)).strip()
             return (
                 f"<!-- GHOSTWRITER_ILLUSTRATION_START -->\n"
                 f"![{title}]({rel_path})\n"
                 f"*{caption}*\n"
                 f"<!-- GHOSTWRITER_ILLUSTRATION_END -->"
             )
+
+        paragraphs = [p.strip() for p in clean_prose.split("\n\n") if p.strip()]
+        if not paragraphs:
+            return "\n\n".join(_format_md_block(item) for item in illustrations)
 
         # Compute target paragraph insertion indices for 3 slots (Opening, Middle, Climax)
         n_paras = len(paragraphs)

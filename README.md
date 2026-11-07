@@ -1,59 +1,90 @@
 # 🖋️ GhostWriter: AI Multi-Agent Novel Writing Engine
 
-**GhostWriter** adalah sistem kecerdasan buatan berbasis *Multi-Agent Architecture* yang dirancang khusus untuk membantu penulis menyusun novel bergenre apa pun—dari tahap pematangan ide premis, perancangan dunia (*worldbuilding*), pengembangan karakter mendalam (*character bible*), penyusunan *plot beat-by-beat*, penulisan prosa bab sastra (*prose drafting*), hingga audit kontinuitas dan ekspor naskah ke **Word (.docx)** dan **Markdown**.
+**GhostWriter** adalah sistem kecerdasan buatan berbasis *Multi-Agent Architecture* yang dirancang khusus untuk membantu penulis menyusun novel bergenre apa pun—dari tahap pematangan ide premis atau adaptasi artikel/dokumen, perancangan dunia (*worldbuilding*), pengembangan karakter mendalam (*character bible*), penyusunan alur adegan (*plot beats*), penulisan prosa bab sastra (*prose drafting*), evaluasi audit kontinuitas, pembuatan ilustrasi bab fotorealistik konsisten (FLUX.1 DSLR Realism), hingga ekspor naskah ke **HTML Visual Reader**, **Word (.docx)** dengan gambar tertanam, dan **Markdown (.md)**.
 
-Didukung oleh model **Google Gemini** (Gemini 2.5 Flash / Gemini 1.5 Pro) dengan jendela konteks raksasa (1M+ token) untuk menjaga ingatan plot dan konsistensi cerita secara sempurna tanpa amnesia.
+Didukung oleh model pilihan: **xAI Grok** untuk sastra & prosa mendalam serta **Google Gemini** (Gemini 2.5 Flash / Gemini 1.5 Pro) dengan jendela konteks raksasa untuk menjaga memori plot secara sempurna.
 
 ---
 
 ## 👥 Tim AI Agen Kreatif (Multi-Agent Team)
 
 1. **🏛️ Architect Agent (Worldbuilder & Lore Engine)**
-   - Merancang latar dunia, atmosfer visual & cuaca, aturan sistem sihir/teknologi, tatanan faksi, dan sejarah masa lalu yang memicu konflik.
-2. **👤 Character Master Agent (Psikologi Tokoh)**
-   - Menyusun profil karakter 3 dimensi: penampilan fisik, motivasi batin (*internal need*), tujuan konkret (*external goal*), luka masa lalu (*fatal flaw*), serta gaya dialog/bicara unik.
+   - Merancang latar dunia, atmosfer visual, aturan sistem sihir/teknologi, tatanan faksi, dan sejarah masa lalu yang memicu konflik.
+2. **👤 Character Master Agent (Psikologi Tokoh & Visual Bible)**
+   - Menyusun profil karakter 3 dimensi: penampilan fisik spesifik, motivasi batin (*internal need*), tujuan konkret (*external goal*), luka masa lalu (*fatal flaw*), serta gaya dialog/bicara unik. Mengunci fitur DNA visual (warna mata, bentuk wajah, pakaian khas, bekas luka).
 3. **🗺️ Plot Outliner Agent (Struktur Naratif)**
    - Merancang alur cerita makro dengan struktur babak (*Three-Act Structure*) dan membagi cerita menjadi bab-bab dengan *turning point* yang memikat.
 4. **📋 Scene Planner Agent (Micro-beats Planner)**
-   - Memecah setiap bab menjadi 3-5 ketukan adegan (*scene beats*) agar ritme penceritaan terjaga dan tidak membosankan.
+   - Memecah setiap bab menjadi 3-5 ketukan adegan (*scene beats*) agar ritme penceritaan terjaga dan dinamis.
 5. **✍️ Prose Writer Agent (Novelist Maestro)**
    - Menulis prosa bab demi bab dengan prinsip *Show, Don't Tell*, fokus detail panca indera, dialog berbobot, dan pacing yang hidup.
 6. **🔍 Continuity & Style Editor Agent (Kritikus & Editor)**
-   - Mengevaluasi draf naskah, mendeteksi *plothole* atau inkonsistensi fakta, memberi skor kualitas (1-100), dan dapat merevisi naskah secara otomatis berdasarkan arahan penulis.
-7. **📦 Novel Exporter**
-   - Mengompilasi seluruh bab yang telah selesai menjadi satu manuskrip utuh siap baca atau siap kirim ke penerbit dalam format **Markdown (.md)** dan **Microsoft Word (.docx)** berformat standar buku.
+   - Mengevaluasi draf naskah, mendeteksi *plothole* atau inkonsistensi fakta, memberi skor kualitas (1-100), dan merevisi naskah secara otomatis.
+7. **🎨 Illustrator Agent (FLUX.1 DSLR Realism & Visual Bible DNA Lock)**
+   - Mengambil 3 momen adegan kunci per bab (Awal, Tengah, Klimaks) dan merender ilustrasi fotorealistik standar lensa kamera DSLR (35mm/50mm, f/4-f/5.6), memperlihatkan pose tubuh dinamis dan latar lingkungan detail tanpa sensor berlebih.
+8. **📦 Novel Exporter**
+   - Mengompilasi seluruh bab dan ilustrasi menjadi manuskrip siap cetak Microsoft Word (**DOCX** dengan gambar JPEG asli tertanam), **Illustrated HTML Reader** interaktif offline, dan naskah **Markdown (.md)**.
+
+---
+
+## 🎨 Fitur Ilustrasi Bab Realistis & Bebas Sensor
+
+GhostWriter dilengkapi engine ilustrasi bab canggih:
+- **3 Ilustrasi per Bab:** Momen pembuka, titik tengah (konfrontasi/momen emosional), dan klimaks bab.
+- **Konsistensi Visual (Visual Bible Lock):** Karakter utama mempertahankan wajah, etnis, warna mata, gaya rambut, dan pakaian yang konsisten antar-bab.
+- **Framing DSLR Realistis:** Pose tubuh dinamis, interaksi fisik, dan latar belakang kaya detail seperti jepretan kamera sungguhan (menghindari foto kepala *close-up blur* berlebih).
+- **Anti-Refusal & Anti-Censor:** Prompt adegan intens/sensitif diadaptasi otomatis agar diterima oleh AI image generator tanpa membatalkan konteks artistik adegan.
+- **Kompatibilitas Penuh Word & Browser:** Konversi otomatis ke JPEG standar RGB (via Pillow / ffmpeg / proxy) agar gambar tidak rusak atau hilang saat dibuka di Microsoft Word maupun browser HP.
 
 ---
 
 ## 🚀 Persyaratan Sistem & Instalasi
 
-Proyek ini telah dikonfigurasi dan siap dijalankan dengan **Python 3.11+**.
+Proyek ini siap dijalankan dengan **Python 3.10+**.
 
-Semua dependensi utama (`rich`, `google-genai`, `python-docx`, `pydantic`, `python-dotenv`) sudah terpasang. Jika ingin memasang ulang:
+Pasang semua dependensi:
 
 ```bash
 pip install -r requirements.txt
 ```
 
+### 📱 Panduan Khusus Pengguna Android (Termux)
+
+GhostWriter dioptimalkan secara khusus agar nyaman digunakan di Android Termux:
+
+1. **Akses Penyimpanan Eksternal:**
+   Jalankan perintah ini sekali agar GhostWriter dapat menyalin hasil ekspor langsung ke folder publik HP Anda:
+   ```bash
+   termux-setup-storage
+   ```
+   Hasil ekspor dan ilustrasi akan otomatis tersedia di:  
+   `/sdcard/Download/GhostWriter/<nama-novel>/`  
+   (bisa dibuka langsung lewat aplikasi File Manager, Galeri, WPS Office, atau Microsoft Word).
+
+2. **Paket Pendukung Termux (Sangat Disarankan):**
+   ```bash
+   pkg install termux-tools termux-api ffmpeg
+   ```
+   - `termux-open`: Membuka file naskah Word (.docx) atau HTML Reader langsung ke aplikasi Android terkait tanpa error izin `file://`.
+   - `termux-wake-lock`: Mencegah server reader lokal tertidur saat beralih ke Chrome.
+   - `ffmpeg`: Mengonversi gambar ilustrasi menjadi format JPEG berstandar tinggi.
+
 ---
 
-## 🔑 Konfigurasi Gemini API Key
+## 🔑 Konfigurasi API Key (Grok & Gemini)
 
-GhostWriter menggunakan model **Google Gemini** yang dapat diperoleh secara gratis:
-1. Dapatkan API Key di [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. Anda dapat langsung memasukkan API Key saat aplikasi dijalankan, atau memasukkannya ke dalam file `.env`:
+GhostWriter mendukung dua provider AI teks utama:
+1. **xAI Grok (Prioritas):** Dapatkan API Key di [xAI Console](https://console.x.ai).
+2. **Google Gemini (Gratis):** Dapatkan API Key di [Google AI Studio](https://aistudio.google.com/app/apikey).
+
+Anda dapat memasukkan API Key secara interaktif dari menu aplikasi atau menyimpannya di file `.env`:
 
 ```env
-GEMINI_API_KEY=AIzaSy...your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GROK_API_KEY=xai-...
+GEMINI_API_KEY=AIzaSy...
+AI_PROVIDER=grok
 NOVEL_DEFAULT_LANGUAGE=Indonesian
 ```
-
-> **Model yang Didukung:**
-> - `gemini-2.5-flash` (Rekomendasi utama: sangat cepat, cerdas, dan efisien)
-> - `gemini-2.0-flash`
-> - `gemini-1.5-flash`
-> - `gemini-1.5-pro` (Untuk kedalaman sastra dan analisis narasi sangat kompleks)
 
 ---
 
@@ -68,15 +99,16 @@ python main.py
 ### Navigasi Menu Interaktif:
 ```
 === MENU UTAMA GHOSTWRITER ===
-  1. 🌟 Buat Proyek Novel Baru (Wizard Multi-Agen)
-  2. 📂 Buka Proyek Novel yang Ada
+  1. 🌟 Buat Proyek Novel Baru (Ide Manual / Upload File Artikel)
+  2. 📂 Buka & Kelola Proyek Novel (Buka / Hapus)
   3. ✍️ Tulis / Lanjutkan Bab (Scene Planner + Prose Writer)
-  4. 🔍 Audit & Edit Bab (Continuity & Style Editor)
-  5. 📖 Baca Naskah Bab di Terminal
-  6. 👥 Lihat Karakter & World Bible
-  7. 📦 Export Novel (Markdown & Word .docx)
-  8. ⚙️ Pengaturan API Key & Model
-  9. 🚪 Keluar
+  4. 🎨 Buat & Kelola Ilustrasi Bab (3 Ilustrasi Realistis, Konsisten & Tanpa Sensor)
+  5. 🔍 Audit & Edit Bab (Continuity & Style Editor)
+  6. 📖 Baca Naskah Bab di Terminal
+  7. 👥 Lihat & Kelola Karakter, World Bible, & Outline
+  8. 📦 Export Novel + Ilustrasi (HTML Reader, Word .docx, & Markdown)
+  9. ⚙️ Pengaturan AI (Grok / Gemini / Engine Ilustrasi)
+  10. 🚪 Keluar
 ```
 
 ---
@@ -87,28 +119,32 @@ Setiap novel disimpan dalam folder tersendiri di dalam direktori `projects/`:
 
 ```
 projects/
-└── cakrawala_yang_hilang/
-    ├── metadata.json           # Informasi judul, genre, penulis, target bab
-    ├── world_bible.json        # Latar, aturan dunia, lore sejarah
-    ├── characters.json         # Karakter, motivasi, flaw, gaya bicara
-    ├── outline.json            # Sinopsis umum, babak, dan outline bab
+└── judul_novel/
+    ├── metadata.json           # Judul, genre, premis, target bab
+    ├── world_bible.json        # Latar, atmosfer, aturan dunia, lore sejarah
+    ├── characters.json         # Karakter, DNA visual, motivasi, flaw
+    ├── outline.json            # Struktur babak dan rencana bab
     ├── chapters/
     │   ├── chapter_01.md       # Naskah prosa Bab 1
-    │   ├── chapter_01_beats.json # Ketukan adegan Bab 1
-    │   └── chapter_01_audit.json # Laporan audit dan review editor
+    │   ├── chapter_01_beats.json
+    │   └── chapter_01_audit.json
+    ├── illustrations/
+    │   ├── chapter_01_illustrations.json  # Rencana prompt ilustrasi
+    │   ├── chapter_01_illus_01.jpg        # Foto adegan 1 (Awal)
+    │   ├── chapter_01_illus_02.jpg        # Foto adegan 2 (Tengah)
+    │   └── chapter_01_illus_03.jpg        # Foto adegan 3 (Klimaks)
     └── exports/
-        ├── cakrawala_yang_hilang.md    # Naskah utuh gabungan Markdown
-        └── cakrawala_yang_hilang.docx  # Manuskrip siap cetak Microsoft Word
+        ├── judul_novel.html    # E-Book Web Reader interaktif + gambar offline
+        ├── judul_novel.docx    # Dokumen Word dengan gambar tertanam
+        └── judul_novel.md      # Naskah utuh gabungan Markdown
 ```
-
-Progres Anda tersimpan secara lokal dan otomatis, sehingga Anda dapat berhenti dan melanjutkan penulisan kapan saja.
 
 ---
 
 ## 🧪 Menjalankan Pengujian (Unit Tests)
 
-Untuk memverifikasi fungsi penyimpanan dan ekspor dokumen:
+Untuk memverifikasi seluruh komponen (manajemen proyek, planner, prompt ilustrasi DSLR, konversi JPEG, dan ekspor dokumen):
 
 ```bash
-python -m pytest tests/test_novel_system.py
+python tests/test_novel_system.py
 ```

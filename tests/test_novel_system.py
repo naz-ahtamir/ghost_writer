@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config
 
 try:
     import pytest
@@ -560,6 +561,29 @@ def test_chapter_illustrations_and_visual_consistency():
         assert is_valid_rendered_image(black_buf.getvalue()) is False
     except ImportError:
         pass
+
+
+    # 7. Verify JPEG Normalization and Local Reader Server
+    from core.image_gen import normalize_to_jpeg_bytes
+    from agents.exporter import ensure_local_reader_server, get_local_reader_url, open_file_in_viewer
+    try:
+        from PIL import Image
+        png_buf = io.BytesIO()
+        Image.new("RGB", (64, 64), color=(30, 60, 90)).save(png_buf, format="PNG")
+        converted_jpg = normalize_to_jpeg_bytes(png_buf.getvalue())
+        assert converted_jpg.startswith(b"\xff\xd8\xff")
+    except ImportError:
+        pass
+
+    server_port = ensure_local_reader_server()
+    assert isinstance(server_port, int) and 8765 <= server_port <= 8810
+    # Files inside config.PROJECTS_DIR get served via http://127.0.0.1:port
+    sample_proj_file = config.PROJECTS_DIR / "sample_test" / "test.html"
+    assert get_local_reader_url(sample_proj_file).startswith(f"http://127.0.0.1:{server_port}/sample_test/test.html")
+    # Files outside return file:// URI fallback
+    assert get_local_reader_url(html_file).startswith("file://")
+    opened = open_file_in_viewer(html_file, prefer_native_app=False)
+    assert opened
 
 
 if __name__ == "__main__":
