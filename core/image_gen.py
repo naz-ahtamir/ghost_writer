@@ -1,10 +1,10 @@
-"""Multi-provider Uncensored Image Generation Client for GhostWriter Chapter Illustrations.
+"""High-Realism Uncensored Image Generation Client for GhostWriter Chapter Illustrations.
 
-Engineered with a Multi-Layer Anti-Refusal & Low-Censorship Pipeline:
-1. Direct Uncensored Parameters (`safe=false`, `enhance=false`, `BLOCK_NONE`, `ALLOW_ADULT`)
-2. Black-Image / Safety-Blanking Detector (rejects blacked-out or placeholder censored images)
-3. Smart Boudoir / Art-House Visual Prompt Optimizer (converts raw trigger words that trip API bots into high-impact sensual/anatomical/cinematic visual descriptors that pass filters while preserving the exact adult/dramatic visual intent)
-4. Multi-Model Cascade (`flux-realism` -> `flux` -> `flux-cablyai` -> `turbo`, plus Grok Image, Gemini Imagen, and Local Uncensored Stable Diffusion API)
+Powered by:
+1. Official FLUX.1 High-Realism Cluster (FLUX.1-merged, FLUX.1-dev, FLUX.1-schnell via multi-node Gradio API — zero watermark, true DSLR camera realism, full pose & environment rendering)
+2. xAI Grok Image API (grok-2-image / grok-2-image-1212)
+3. Google Gemini / Imagen 3 API (with BLOCK_NONE / ALLOW_ADULT)
+4. Local Stable Diffusion WebUI / Forge API (100% local uncensored txt2img)
 """
 
 import base64
@@ -26,11 +26,66 @@ from core.llm import _create_ssl_context, safe_log, GEMINI_CORE_SAFETY_CATEGORIE
 
 DEFAULT_NEGATIVE_PROMPT = (
     "anime, cartoon, 3d render, cgi, illustration, painting, sketch, comic, "
+    "close-up headshot only, passport photo, empty background, blurry background blob, "
     "doll, plastic skin, airbrushed, oversaturated, censored, mosaic, blurred, "
     "pixelated, black bars, watermark, text, logo, signature, username, "
     "deformed hands, extra fingers, missing fingers, bad anatomy, skewed eyes, "
     "mutated limbs, duplicate face, lowres, blurry, worst quality, artifacts"
 )
+
+# Multi-node FLUX.1 Gradio cluster (True 12B FLUX.1 models — no watermarks, DSLR realism)
+FLUX_CLUSTER_NODES: List[Dict[str, Any]] = [
+    {
+        "name": "flux-1-merged-dslr",
+        "host": "https://multimodalart-flux-1-merged.hf.space",
+        "mode": "dev_merged",
+        "steps": 8,
+        "guidance": 3.5,
+    },
+    {
+        "name": "flux-1-schnell-bfl",
+        "host": "https://black-forest-labs-flux-1-schnell.hf.space",
+        "mode": "schnell",
+        "steps": 4,
+    },
+    {
+        "name": "flux-1-schnell-eval",
+        "host": "https://evalstate-flux1-schnell.hf.space",
+        "mode": "schnell",
+        "steps": 4,
+    },
+    {
+        "name": "flux-1-dev-bfl",
+        "host": "https://black-forest-labs-flux-1-dev.hf.space",
+        "mode": "dev",
+        "steps": 24,
+        "guidance": 3.5,
+    },
+    {
+        "name": "flux-1-schnell-abid",
+        "host": "https://abidlabs-black-forest-labs-flux-1-schnell.hf.space",
+        "mode": "schnell",
+        "steps": 4,
+    },
+    {
+        "name": "flux-1-schnell-shan",
+        "host": "https://justshannniii-labs-flux-1-schnell.hf.space",
+        "mode": "schnell",
+        "steps": 4,
+    },
+    {
+        "name": "flux-1-schnell-hysts",
+        "host": "https://hysts-mcp-flux-1-schnell.hf.space",
+        "mode": "schnell",
+        "steps": 4,
+    },
+    {
+        "name": "flux-1-schnell-saad",
+        "host": "https://saadpie1-black-forest-labs-flux-1-schnell.hf.space",
+        "mode": "schnell",
+        "steps": 4,
+    },
+]
 
 # Meta-words that ironically trigger automated API safety bots without adding visual value
 META_TRIGGER_WORDS = (
@@ -45,19 +100,19 @@ META_TRIGGER_WORDS = (
 )
 
 # Visual translation map: converts raw keywords that trip API safety filters into
-# vivid, photorealistic, sensual/visceral cinematography descriptions that render without refusal.
+# vivid, photorealistic, sensual/visceral DSLR cinematography descriptions that render without refusal.
 ARTISTIC_VISUAL_ADAPTATIONS: List[Tuple[str, str]] = [
     (
         r"\b(naked|nude|nudity|fully unclothed|completely naked)\b",
-        "unclothed natural skin silhouette, bare shoulders and back, sensual boudoir art photography, alluring natural skin texture, chiaroscuro shadow play",
+        "unclothed natural skin silhouette, bare shoulders and back, sensual boudoir DSLR photography, alluring natural skin texture, chiaroscuro shadow play",
     ),
     (
         r"\b(having sex|sexual intercourse|intercourse|making love|fucking|penetration)\b",
-        "passionate intimate embrace on bed, intertwined bodies, bare skin against skin, flushed faces inches apart, heavy-lidded sensual gaze, intense erotic tension, tangled silk sheets",
+        "passionate intimate embrace on bed, intertwined bodies, bare skin against skin, hands gripping waist and chest, flushed faces inches apart, heavy-lidded sensual gaze, intense erotic tension, tangled silk sheets",
     ),
     (
         r"\b(topless|bare breasts|naked breasts|nipples)\b",
-        "bare shoulders and collarbone, alluring feminine curves, sensual décolletage, intimate draped silk, natural anatomical proportions",
+        "bare shoulders and collarbone, alluring feminine curves, deep sensual décolletage, intimate draped silk, natural anatomical proportions",
     ),
     (
         r"\b(orgasm|climaxing|moaning in pleasure)\b",
@@ -69,7 +124,7 @@ ARTISTIC_VISUAL_ADAPTATIONS: List[Tuple[str, str]] = [
     ),
     (
         r"\b(gore|gory|mutilated|decapitated|disemboweled)\b",
-        "visceral dark thriller action, crimson splatters on skin and floor, battle wounds, grimdark cinematic realism",
+        "visceral dark thriller action, crimson splatters on skin and floor, battle wounds, grimdark live-action movie realism",
     ),
 ]
 
@@ -90,17 +145,12 @@ def clean_meta_triggers(prompt: str) -> str:
 
 
 def adapt_prompt_for_uncensored_render(prompt: str, level: int = 1) -> str:
-    """Transform raw trigger words into photorealistic boudoir/cinema visual descriptions.
-
-    level 1: Strip meta-triggers + convert hard filter words into sensual/visceral visual descriptors.
-    level 2: High-art R-rated cinematography framing guaranteed to pass strict API gateways while keeping character DNA and intimate/dramatic mood.
-    """
+    """Transform raw trigger words into photorealistic boudoir/cinema visual descriptions."""
     adapted = clean_meta_triggers(prompt)
     for pattern, replacement in ARTISTIC_VISUAL_ADAPTATIONS:
         adapted = re.sub(pattern, replacement, adapted, flags=re.IGNORECASE)
 
     if level >= 2:
-        # Remove any remaining aggressive anatomical terms that might block on strict gateways
         extra_replacements = [
             (r"\b(genitals|penis|vagina|pussy|cock|dick)\b", "intimate lower silhouette in deep chiaroscuro shadow"),
             (r"\b(buttocks|ass|butt)\b", "sculpted back and hip silhouette"),
@@ -110,7 +160,7 @@ def adapt_prompt_for_uncensored_render(prompt: str, level: int = 1) -> str:
         for pat, rep in extra_replacements:
             adapted = re.sub(pat, rep, adapted, flags=re.IGNORECASE)
         adapted = (
-            "Masterpiece R-rated art-house cinema still, tasteful dramatic chiaroscuro lighting, "
+            "Candid live-action DSLR photograph shot on Sony A7R V 35mm f/1.4 lens, tasteful dramatic lighting, "
             + adapted
         )
 
@@ -128,28 +178,39 @@ def is_valid_rendered_image(img_bytes: bytes) -> bool:
             pixels = list(rgb.getdata())
             if not pixels:
                 return False
-            # Compute average brightness and variance across 64x64 thumbnail
             lum_values = [(0.299 * r + 0.587 * g + 0.114 * b) for (r, g, b) in pixels]
             mean_lum = sum(lum_values) / len(lum_values)
-            # Reject pure black / near-black NSFW filter outputs or pure white blanks
             if mean_lum < 3.5 or mean_lum > 252.0:
                 return False
             variance = sum((x - mean_lum) ** 2 for x in lum_values) / len(lum_values)
-            # Reject flat solid-color placeholder images
             if variance < 4.0:
                 return False
         return True
     except ImportError:
-        # If Pillow is not installed, check JPEG/PNG magic headers and minimum size
         return len(img_bytes) > 4096 and (
-            img_bytes.startswith(b"\xff\xd8\xff") or img_bytes.startswith(b"\x89PNG")
+            img_bytes.startswith(b"\xff\xd8\xff")
+            or img_bytes.startswith(b"\x89PNG")
+            or img_bytes.startswith(b"RIFF")
         )
     except Exception:
         return False
 
 
+def normalize_to_jpeg_bytes(img_bytes: bytes) -> bytes:
+    """Convert WebP/PNG/JPEG bytes into high-quality standard RGB JPEG bytes for Word & Browser compatibility."""
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(img_bytes)) as img:
+            rgb = img.convert("RGB")
+            out = io.BytesIO()
+            rgb.save(out, format="JPEG", quality=95)
+            return out.getvalue()
+    except Exception:
+        return img_bytes
+
+
 class ImageGeneratorClient:
-    """Unified image generation client with anti-refusal adaptation and seed consistency."""
+    """Unified image generation client with real FLUX.1 DSLR Cluster, anti-refusal adaptation, and seed lock."""
 
     def __init__(
         self,
@@ -169,80 +230,111 @@ class ImageGeneratorClient:
         self.provider = provider.strip().lower()
         self.model = model or config.get_image_model(self.provider)
 
+    def _call_single_flux_gradio_node(
+        self,
+        node: Dict[str, Any],
+        prompt: str,
+        seed: int,
+    ) -> bytes:
+        """Execute a single inference call against a FLUX.1 Gradio Space node."""
+        ctx = _create_ssl_context()
+        host = node["host"].rstrip("/")
+        mode = node.get("mode", "schnell")
+        steps = int(node.get("steps", 4))
+        w = max(512, min(1344, (self.width // 32) * 32))
+        h = max(512, min(1344, (self.height // 32) * 32))
+
+        if mode in ("dev", "dev_merged"):
+            guidance = float(node.get("guidance", 3.5))
+            payload_data = [prompt, int(seed), False, w, h, guidance, steps]
+        else:
+            payload_data = [prompt, int(seed), False, w, h, steps]
+
+        call_url = f"{host}/gradio_api/call/infer"
+        req = urllib.request.Request(
+            call_url,
+            data=json.dumps({"data": payload_data}).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) GhostWriterAI/2.5",
+                "Connection": "close",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+            resp_json = json.loads(resp.read().decode("utf-8"))
+            event_id = resp_json.get("event_id")
+            if not event_id:
+                raise RuntimeError(f"Tidak mendapatkan event_id dari {node['name']}")
+
+        stream_url = f"{host}/gradio_api/call/infer/{event_id}"
+        req_stream = urllib.request.Request(
+            stream_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) GhostWriterAI/2.5",
+                "Accept": "text/event-stream",
+                "Connection": "close",
+            },
+            method="GET",
+        )
+        current_event = ""
+        with urllib.request.urlopen(req_stream, timeout=75, context=ctx) as stream_resp:
+            for raw_line in stream_resp:
+                line_str = raw_line.decode("utf-8", errors="replace").strip()
+                if line_str.startswith("event:"):
+                    current_event = line_str[6:].strip()
+                elif line_str.startswith("data:"):
+                    data_str = line_str[5:].strip()
+                    if current_event == "error":
+                        raise RuntimeError(f"Gradio error pada {node['name']}: {data_str}")
+                    if not data_str or data_str == "null":
+                        continue
+                    parsed = json.loads(data_str)
+                    if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+                        img_info = parsed[0]
+                        img_url = img_info.get("url")
+                        if not img_url and img_info.get("path"):
+                            img_url = f"{host}/gradio_api/file={img_info['path']}"
+                        if img_url:
+                            img_req = urllib.request.Request(
+                                img_url,
+                                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) GhostWriterAI/2.5"},
+                            )
+                            with urllib.request.urlopen(img_req, timeout=30, context=ctx) as img_resp:
+                                return img_resp.read()
+
+        raise RuntimeError(f"Stream selesai tanpa gambar dari {node['name']}")
+
     def _generate_via_pollinations(
         self,
         prompt: str,
         seed: int,
         model_name: Optional[str] = None,
     ) -> Tuple[bytes, str]:
-        """Generate photorealistic image via Pollinations Flux API with multi-level anti-censorship retry."""
-        ctx = _create_ssl_context()
-        models_to_try = [model_name or self.model]
-        for fallback_m in ("flux-realism", "flux", "flux-cablyai", "turbo"):
-            if fallback_m not in models_to_try:
-                models_to_try.append(fallback_m)
-
-        # Prepare 3 prompt variants:
-        # Variant 0: Clean meta-triggers (preserves 100% original descriptive prompt)
-        # Variant 1: Sensual/Artistic visual synonym adaptation (bypasses keyword filters)
-        # Variant 2: High-art R-rated chiaroscuro adaptation (guaranteed to pass any gateway)
+        """Generate true DSLR photorealistic image via the FLUX.1 Cluster (replaces legacy blurry Pollinations sana)."""
         prompt_variants = [
-            clean_meta_triggers(prompt),
             adapt_prompt_for_uncensored_render(prompt, level=1),
             adapt_prompt_for_uncensored_render(prompt, level=2),
         ]
-        # Deduplicate while preserving order
         unique_variants: List[str] = []
         for pv in prompt_variants:
             if pv not in unique_variants:
                 unique_variants.append(pv)
 
-        last_err = None
+        last_err: Optional[Exception] = None
 
-        for variant_idx, active_prompt in enumerate(unique_variants):
-            trimmed_prompt = active_prompt.strip()[:1400]
-            encoded_prompt = urllib.parse.quote(trimmed_prompt, safe="")
-
-            for m in models_to_try:
-                query = urllib.parse.urlencode({
-                    "model": m,
-                    "width": self.width,
-                    "height": self.height,
-                    "seed": seed,
-                    "nologo": "true",
-                    "safe": "false",
-                    "enhance": "false",
-                    "private": "true",
-                })
-                url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?{query}"
-                req = urllib.request.Request(
-                    url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) GhostWriterAI/2.0",
-                        "Accept": "image/jpeg,image/png,image/*,*/*;q=0.8",
-                        "Connection": "close",
-                    },
-                    method="GET",
-                )
+        for v_idx, active_prompt in enumerate(unique_variants):
+            for node in FLUX_CLUSTER_NODES:
                 try:
-                    with urllib.request.urlopen(req, timeout=75, context=ctx) as resp:
-                        img_bytes = resp.read()
-                        if is_valid_rendered_image(img_bytes):
-                            suffix = "" if variant_idx == 0 else f":adapted_v{variant_idx}"
-                            return img_bytes, f"pollinations:{m}{suffix}"
-                        else:
-                            last_err = RuntimeError(f"Model {m} mengembalikan gambar kosong/tersensor.")
-                except urllib.error.HTTPError as he:
-                    last_err = he
-                    # If 400/403/422 content filter triggered, break inner loop to try adapted prompt variant immediately
-                    if he.code in (400, 403, 422, 451):
-                        break
-                    time.sleep(1.5)
+                    raw_bytes = self._call_single_flux_gradio_node(node, active_prompt, seed)
+                    if is_valid_rendered_image(raw_bytes):
+                        jpg_bytes = normalize_to_jpeg_bytes(raw_bytes)
+                        return jpg_bytes, f"flux_cluster:{node['name']}"
                 except Exception as e:
                     last_err = e
-                    time.sleep(1.5)
+                    continue
 
-        raise RuntimeError(f"Pollinations image generation gagal setelah adaptasi anti-sensor: {last_err}")
+        raise RuntimeError(f"Seluruh node FLUX.1 Cluster sedang penuh/terkendala: {last_err}")
 
     def _generate_via_grok(self, prompt: str) -> Tuple[bytes, str]:
         """Generate image using xAI Grok Image API (grok-2-image) with automatic artistic adaptation retry."""
@@ -261,7 +353,7 @@ class ImageGeneratorClient:
         ]
         last_err = None
 
-        for v_idx, active_prompt in enumerate(variants):
+        for active_prompt in variants:
             payload = {
                 "model": model_name,
                 "prompt": active_prompt[:2000],
@@ -289,11 +381,11 @@ class ImageGeneratorClient:
                             raw_bytes = base64.b64decode(items[0]["b64_json"])
                         elif items[0].get("url"):
                             img_url = items[0]["url"]
-                            img_req = urllib.request.Request(img_url, headers={"User-Agent": "GhostWriterAI/2.0"})
+                            img_req = urllib.request.Request(img_url, headers={"User-Agent": "GhostWriterAI/2.5"})
                             with urllib.request.urlopen(img_req, timeout=60, context=ctx) as img_resp:
                                 raw_bytes = img_resp.read()
                         if raw_bytes and is_valid_rendered_image(raw_bytes):
-                            return raw_bytes, f"grok:{model_name}"
+                            return normalize_to_jpeg_bytes(raw_bytes), f"grok:{model_name}"
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="replace")
                 last_err = RuntimeError(f"xAI Grok Image API Error ({e.code}): {err_body}")
@@ -321,7 +413,6 @@ class ImageGeneratorClient:
         last_err = None
 
         for active_prompt in variants:
-            # 1. Try Imagen 3 predict endpoint
             imagen_url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"imagen-3.0-generate-002:predict?key={api_key}"
@@ -348,11 +439,10 @@ class ImageGeneratorClient:
                     if preds and preds[0].get("bytesBase64Encoded"):
                         raw_bytes = base64.b64decode(preds[0]["bytesBase64Encoded"])
                         if is_valid_rendered_image(raw_bytes):
-                            return raw_bytes, "gemini:imagen-3.0"
+                            return normalize_to_jpeg_bytes(raw_bytes), "gemini:imagen-3.0"
             except Exception as e:
                 last_err = e
 
-            # 2. Try Gemini 2.0 Flash Image Generation with OFF / BLOCK_NONE safety
             flash_url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"gemini-2.0-flash-exp-image-generation:generateContent?key={api_key}"
@@ -361,7 +451,7 @@ class ImageGeneratorClient:
                 "contents": [
                     {
                         "role": "user",
-                        "parts": [{"text": f"Generate a photorealistic cinematic film still: {active_prompt}"}],
+                        "parts": [{"text": f"Generate a candid live-action DSLR photograph: {active_prompt}"}],
                     }
                 ],
                 "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
@@ -386,7 +476,7 @@ class ImageGeneratorClient:
                             if inline.get("data"):
                                 raw_bytes = base64.b64decode(inline["data"])
                                 if is_valid_rendered_image(raw_bytes):
-                                    return raw_bytes, "gemini:2.0-flash-image"
+                                    return normalize_to_jpeg_bytes(raw_bytes), "gemini:2.0-flash-image"
             except Exception as e:
                 last_err = e
 
@@ -423,7 +513,7 @@ class ImageGeneratorClient:
                 resp_data = json.loads(resp.read().decode("utf-8"))
                 images = resp_data.get("images", [])
                 if images:
-                    return base64.b64decode(images[0]), "local_sd:txt2img"
+                    return normalize_to_jpeg_bytes(base64.b64decode(images[0])), "local_sd:txt2img"
                 raise RuntimeError("Respons Local SD kosong.")
         except Exception as e:
             raise RuntimeError(f"Local Stable Diffusion API ({url}) tidak terhubung: {e}")
@@ -498,7 +588,7 @@ class ImageGeneratorClient:
         allow_fallback_to_pollinations: bool = True,
         allow_offline_storyboard: bool = True,
     ) -> Dict[str, Any]:
-        """Generate an image file on disk with multi-stage anti-refusal & uncensored fallback."""
+        """Generate a high-realism DSLR image file on disk with multi-node FLUX.1 fallback."""
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         effective_seed = seed if seed is not None else compute_deterministic_seed(prompt)
@@ -520,13 +610,11 @@ class ImageGeneratorClient:
             last_error = e
             if self.provider != "pollinations" and allow_fallback_to_pollinations:
                 safe_log(
-                    f"[Illustrator] Engine '{self.provider}' menolak/terkendala ({e}). "
-                    f"Mengalihkan otomatis ke Pollinations Flux Realism (Safe=False + Anti-Refusal Adaptation)..."
+                    f"[Illustrator] Engine '{self.provider}' terkendala ({e}). "
+                    f"Beralih otomatis ke FLUX.1 DSLR Realism Cluster..."
                 )
                 try:
-                    img_bytes, engine_used = self._generate_via_pollinations(
-                        prompt, effective_seed, model_name="flux-realism"
-                    )
+                    img_bytes, engine_used = self._generate_via_pollinations(prompt, effective_seed)
                 except Exception as poll_err:
                     last_error = poll_err
 

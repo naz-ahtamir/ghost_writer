@@ -21,9 +21,10 @@ from core.prompts import (
 )
 
 DEFAULT_STYLE_ANCHOR = (
-    "photorealistic cinematic film still, shot on ARRI Alexa 65, 35mm anamorphic lens, f/1.8, "
-    "natural skin texture with visible pores, realistic human anatomy and proportions, "
-    "dramatic volumetric lighting, shallow depth of field, raw photo, 8k resolution, masterpiece"
+    "Candid live-action DSLR photograph shot on Sony A7R V, 35mm f/2.8 lens, "
+    "medium-wide three-quarter body shot showing expressive body pose and detailed background environment, "
+    "authentic human facial expression, natural skin texture with visible pores, "
+    "realistic clothing fabric folds, crisp environmental depth, photorealistic cinematic film still, raw camera photo, 8k"
 )
 
 SLOT_ROLES = [
@@ -31,6 +32,72 @@ SLOT_ROLES = [
     ("middle", "Konflik Inti (Mid-Chapter Escalation)"),
     ("climax", "Klimaks / Titik Balik (Chapter Climax)"),
 ]
+
+# Fallback dictionary to translate common Indonesian character/scene descriptors into English for FLUX.1
+ID_TO_EN_VISUAL_TERMS = [
+    (r"\bpria\b|\blaki-laki\b|\bcowok\b", "man"),
+    (r"\bwanita\b|\bperempuan\b|\bcewek\b", "woman"),
+    (r"\bmuda\b", "young"),
+    (r"\bremaja\b", "young adult"),
+    (r"\bdewasa\b", "adult"),
+    (r"\brambut hitam\b", "dark black hair"),
+    (r"\brambut panjang\b", "long flowing hair"),
+    (r"\brambut pendek\b", "short textured hair"),
+    (r"\bmata tajam\b|\btatapan tajam\b", "intense piercing gaze"),
+    (r"\bkulit sawo matang\b", "warm tan natural skin"),
+    (r"\bkulit putih\b|\bkulit cerah\b", "fair natural skin"),
+    (r"\brahang tegas\b", "sharp defined jawline"),
+    (r"\btubuh atletis\b|\bberotot\b", "athletic toned physique"),
+    (r"\blangsing\b|\bsemampai\b", "slender graceful figure"),
+    (r"\bjaket kulit\b", "dark leather jacket"),
+    (r"\bkemeja\b", "tailored button-down shirt"),
+    (r"\bgaun\b", "flowing dress"),
+    (r"\bkamar tidur\b|\bkamar\b", "dimly lit bedroom interior with bed and warm lamp"),
+    (r"\bruang tamu\b|\bruangan\b", "detailed indoor room interior with furniture and windows"),
+    (r"\bjalanan\b|\bkota\b", "atmospheric city street with architectural depth"),
+    (r"\bhujan\b", "rain-slicked surfaces and falling rain"),
+    (r"\bmalam\b", "nighttime dramatic lighting"),
+    (r"\bmemeluk\b|\bpelukan\b", "embracing closely with hands on waist and shoulders"),
+    (r"\bberdiri\b", "standing in dynamic posture"),
+    (r"\bduduk\b", "sitting with expressive body language"),
+]
+
+
+def _enrich_english_visual_description(text: str) -> str:
+    """Ensure fallback Indonesian visual phrases are accompanied by clear English terms for FLUX.1."""
+    if not text:
+        return ""
+    result = text
+    for pattern, eng in ID_TO_EN_VISUAL_TERMS:
+        result = re.sub(pattern, eng, result, flags=re.IGNORECASE)
+    return result
+
+
+def _upgrade_camera_framing_for_pose_and_background(camera_shot: str) -> str:
+    """Ensure camera framing always shows body pose and detailed background (never a blurry passport headshot)."""
+    if not camera_shot:
+        return (
+            "Candid live-action DSLR medium-wide three-quarter body shot, "
+            "Sony A7R V 35mm f/2.8 lens, deep environmental focus showing full pose and room background"
+        )
+    cam = camera_shot.strip()
+    # Replace close-up / extreme close-up with three-quarter / medium-wide framing so body pose is visible
+    cam = re.sub(
+        r"\b(extreme\s+close[\s-]*up|tight\s+close[\s-]*up|close[\s-]*up\s+shot|close[\s-]*up|headshot|portrait\s+shot)\b",
+        "medium-wide three-quarter body DSLR shot showing torso, hands, pose, and background",
+        cam,
+        flags=re.IGNORECASE,
+    )
+    # Replace background-blurring terms with crisp environmental focus
+    cam = re.sub(
+        r"\b(shallow\s+depth\s+of\s+field|heavy\s+bokeh|blurred\s+background|bokeh\s+background)\b",
+        "crisp environmental focus with detailed background architecture",
+        cam,
+        flags=re.IGNORECASE,
+    )
+    if "dslr" not in cam.lower() and "sony" not in cam.lower() and "canon" not in cam.lower():
+        cam = f"Candid live-action DSLR photograph ({cam})"
+    return cam
 
 
 class IllustratorAgent:
@@ -166,7 +233,7 @@ class IllustratorAgent:
         return complete_visual_bible
 
     def _sync_characters_with_visual_bible(self, project: NovelProject) -> None:
-        """Ensure all characters in project.characters exist in visual_bible registry."""
+        """Ensure all characters in project.characters exist in visual_bible registry and upgrade legacy style anchor."""
         vb = project.visual_bible
         registry = vb.get("character_visual_registry", [])
         if not isinstance(registry, list):
@@ -177,6 +244,16 @@ class IllustratorAgent:
             if isinstance(item, dict)
         }
         changed = False
+        old_anchor = vb.get("style_anchor_tags", "")
+        if "shallow depth of field" in old_anchor.lower():
+            vb["style_anchor_tags"] = re.sub(
+                r"\bshallow\s+depth\s+of\s+field\b",
+                "medium-wide three-quarter body framing, crisp environmental background detail",
+                old_anchor,
+                flags=re.IGNORECASE,
+            )
+            changed = True
+
         for c in project.characters:
             c_name = c.get("name", "").strip()
             if not c_name:
@@ -211,11 +288,12 @@ class IllustratorAgent:
     def _build_fallback_character_dna(char: Dict[str, Any], world_bible: Dict[str, Any]) -> str:
         """Construct a detailed photorealistic character DNA string from character profile fields."""
         name = char.get("name", "Character")
-        appearance = char.get("appearance", "distinctive realistic facial features, natural skin texture")
-        role = char.get("role", "lead character")
+        raw_appearance = char.get("appearance", "distinctive realistic facial features, natural skin texture")
+        appearance = _enrich_english_visual_description(raw_appearance)
+        role = _enrich_english_visual_description(char.get("role", "lead character"))
         return (
-            f"{name} ({role}, photorealistic human appearance: {appearance}, "
-            f"consistent facial bone structure, detailed expressive eyes, natural skin pores)"
+            f"{name} ({role}, realistic human appearance: {appearance}, "
+            f"consistent facial bone structure, expressive eyes, natural skin pores)"
         )
 
     def get_character_dna_map(self, project: NovelProject) -> Dict[str, Dict[str, Any]]:
@@ -232,15 +310,16 @@ class IllustratorAgent:
         project: NovelProject,
         illus_item: Dict[str, Any],
     ) -> str:
-        """Assemble a complete photorealistic English prompt with locked Character Visual DNA and Style Anchor."""
+        """Assemble a natural English DSLR photography prompt prioritizing Pose, Expression, Background, and Character DNA."""
         vb = self.ensure_visual_bible(project)
         style_anchor = vb.get("style_anchor_tags", DEFAULT_STYLE_ANCHOR)
         lighting_anchor = vb.get("color_grading_and_lighting", "")
         dna_map = self.get_character_dna_map(project)
 
-        camera = illus_item.get("camera_shot", "Medium cinematic shot, 50mm lens f/1.4, shallow depth of field").strip()
-        pose = illus_item.get("pose_and_action", "").strip()
-        env = illus_item.get("environment_and_lighting", "").strip()
+        raw_camera = illus_item.get("camera_shot", "").strip()
+        camera = _upgrade_camera_framing_for_pose_and_background(raw_camera)
+        pose = _enrich_english_visual_description(illus_item.get("pose_and_action", "").strip())
+        env = _enrich_english_visual_description(illus_item.get("environment_and_lighting", "").strip())
         raw_prompt = illus_item.get("image_prompt", "").strip()
 
         # Collect locked DNA for characters present in this illustration
@@ -253,29 +332,41 @@ class IllustratorAgent:
             ch_key = ch_name.strip().lower()
             matched = dna_map.get(ch_key)
             if not matched:
-                # Partial match fallback (e.g. first name)
                 for k, v in dna_map.items():
                     if ch_key in k or k in ch_key:
                         matched = v
                         break
             if matched and matched.get("visual_dna"):
-                dna_str = matched["visual_dna"]
-                if dna_str.lower() not in raw_prompt.lower():
-                    dna_segments.append(f"[{matched['name']}: {dna_str}]")
+                dna_str = matched["visual_dna"].strip()
+                dna_segments.append(f"{matched['name']} ({dna_str})")
 
-        parts: List[str] = [style_anchor]
-        if camera and camera.lower() not in style_anchor.lower():
-            parts.append(camera)
-        if dna_segments:
-            parts.append("CHARACTERS IN FRAME: " + "; ".join(dna_segments))
+        # Token priority for FLUX.1 (CLIP-L reads first 77 tokens; T5-XXL reads up to 512 tokens):
+        # 1. DSLR Camera Framing (medium-wide / three-quarter body shot + deep focus)
+        # 2. Expressive Body Pose, Action, Hands, & Facial Expression
+        # 3. Detailed Background Setting & Lighting
+        # 4. Locked Character Visual DNA
+        # 5. Master Style Anchor & Color/Lighting Rules
+        parts: List[str] = [camera]
         if pose:
-            parts.append(f"SCENE ACTION & POSE: {pose}")
+            parts.append(
+                f"Dynamic expressive body pose and action: {pose}"
+            )
         elif raw_prompt:
             parts.append(raw_prompt)
+
         if env:
-            parts.append(f"ENVIRONMENT & LIGHTING: {env}")
+            parts.append(
+                f"Detailed background environment and atmosphere: {env}"
+            )
+
+        if dna_segments:
+            parts.append("Featuring " + " and ".join(dna_segments))
+
         if lighting_anchor and lighting_anchor.lower() not in env.lower():
             parts.append(lighting_anchor)
+
+        if style_anchor:
+            parts.append(style_anchor)
 
         combined = ". ".join(p.strip().rstrip(".") for p in parts if p and p.strip()) + "."
         return combined
@@ -364,14 +455,14 @@ class IllustratorAgent:
                 3: beat_title or f"Puncak Klimaks: {chap_title}",
             }
             default_poses = {
-                1: f"{pov_char} in {setting}, {beat_events}, {beat_sensory}, expressive eyes, realistic skin texture".strip(", "),
-                2: f"Intense dramatic interaction involving {', '.join(chars_present)}, {beat_events}, {beat_sensory}, raw emotional expression".strip(", "),
-                3: f"Climactic turning point moment for {', '.join(chars_present)}, {beat_events}, {beat_sensory}, high emotional and physical intensity".strip(", "),
+                1: f"{pov_char} in dynamic three-quarter body posture inside {setting}, {beat_events}, {beat_sensory}, expressive hand gestures, authentic facial emotion, natural skin texture".strip(", "),
+                2: f"Expressive physical interaction and body language involving {', '.join(chars_present)}, {beat_events}, {beat_sensory}, visible torso and hands, intense emotional eye contact".strip(", "),
+                3: f"Climactic dramatic full/three-quarter body pose for {', '.join(chars_present)}, {beat_events}, {beat_sensory}, high emotional and physical intensity, visceral facial expression".strip(", "),
             }
             default_cameras = {
-                1: "Wide establishing cinematic shot, 35mm anamorphic lens, f/2.0, volumetric depth",
-                2: "Medium close-up two-shot, eye-level angle, 50mm Prime lens f/1.4, shallow depth of field",
-                3: "Dramatic close-up / low-angle cinematic shot, 85mm lens f/1.4, intense rim lighting",
+                1: "Candid live-action DSLR medium-wide environmental shot, Sony A7R V 28mm f/2.8 lens, showing full body pose and crisp surrounding architecture",
+                2: "Candid live-action DSLR three-quarter body two-shot, Canon EOS R5 35mm f/2.8 lens, showing body posture, hand gestures, expressive faces, and detailed room background",
+                3: "Dynamic live-action DSLR medium-full body shot, low-angle 35mm f/2.8 lens, capturing full physical action, intense facial expression, and dramatic environmental lighting",
             }
 
             item: Dict[str, Any] = {

@@ -641,12 +641,24 @@ def illustrate_chapter_flow(
             "\n[bold yellow]Arahan Visual Khusus Bab Ini[/bold yellow] [dim](opsional: tulis suasana/adegan/pose spesifik yang diinginkan, atau tekan Enter)[/dim]",
             default="",
         ).strip()
-        with console.status(f"[bold magenta]🎨 Illustrator Agent sedang merancang 3 Ilustrasi Sinematik untuk Bab {ch_num}...[/bold magenta]"):
+        with console.status(f"[bold magenta]🎨 Illustrator Agent sedang merancang 3 Foto Ilustrasi Kamera DSLR untuk Bab {ch_num}...[/bold magenta]"):
             illustrations = illustrator.plan_chapter_illustrations(
                 project=project,
                 chapter_info=ch_info,
                 count=config.ILLUSTRATIONS_PER_CHAPTER,
                 custom_direction=custom_dir,
+            )
+    else:
+        # Automatically upgrade any legacy close-up/Pollinations prompts to the new DSLR Pose + Background format
+        for item in illustrations:
+            item["image_prompt"] = illustrator.compose_consistent_prompt(project, item)
+        project.save_chapter_illustrations(ch_num, illustrations)
+        if any(str(it.get("engine", "")).startswith("pollinations:") for it in illustrations):
+            console.print(
+                "\n[bold yellow]⚡ Upgrade Kualitas Kamera DSLR Tersedia![/bold yellow] "
+                "Ilustrasi sebelumnya dibuat oleh server Pollinations lama (headshot blur). "
+                "Pilih [bold green]1[/bold green] (Render Ulang 3 Gambar) atau [bold cyan]5[/bold cyan] (Rancang Ulang Pose & Background + Render) "
+                "untuk menggunakan [bold green]Official FLUX.1 DSLR Realism Cluster (Sony A7R V 35mm, Full Pose & Background)[/bold green]!"
             )
 
     while True:

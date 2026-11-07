@@ -500,6 +500,12 @@ def test_chapter_illustrations_and_visual_consistency():
             assert "thin scar over left eyebrow" in item["image_prompt"]
             assert "emerald green eyes" in item["image_prompt"]
             assert "photorealistic cinematic film still" in item["image_prompt"]
+            # Ensure close-up / shallow depth of field was automatically upgraded to show body pose + background
+            assert "shallow depth of field" not in item["image_prompt"].lower()
+            assert "Dynamic expressive body pose and action:" in item["image_prompt"]
+            assert "Detailed background environment and atmosphere:" in item["image_prompt"]
+            # Pose and background must appear BEFORE the trailing style anchor so FLUX.1's CLIP-L encoder sees them
+            assert item["image_prompt"].index("Dynamic expressive body pose") < item["image_prompt"].index("photorealistic cinematic film still")
 
         # 3. Render 3 illustrations to disk
         rendered = illustrator.render_chapter_illustrations(proj, 1, planned)
