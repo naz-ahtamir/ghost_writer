@@ -520,15 +520,20 @@ def test_chapter_illustrations_and_visual_consistency():
         assert injected_once.count("chapter_01_illus_02.jpg") == 1
         assert injected_once.count("chapter_01_illus_03.jpg") == 1
 
-        # 5. Export to Markdown and DOCX with embedded illustrations
+        # 5. Export to Markdown, DOCX, and Illustrated HTML Reader with embedded illustrations
         exporter = NovelExporter(proj)
         md_file, docx_file = exporter.export_all()
+        html_file = exporter.export_html()
         assert md_file.exists() and md_file.stat().st_size > 0
         assert docx_file.exists() and docx_file.stat().st_size > 0
+        assert html_file.exists() and html_file.stat().st_size > 0
         md_text = md_file.read_text(encoding="utf-8")
         assert "chapter_01_illus_01.jpg" in md_text
         assert "chapter_01_illus_02.jpg" in md_text
         assert "chapter_01_illus_03.jpg" in md_text
+        html_text = html_file.read_text(encoding="utf-8")
+        assert "data:image/jpeg;base64," in html_text
+        assert "Pertemuan di Dermaga Hujan" in html_text
 
     # 6. Verify Anti-Refusal Prompt Adaptation & Black-Image Detector
     from core.image_gen import adapt_prompt_for_uncensored_render, is_valid_rendered_image

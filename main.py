@@ -26,7 +26,7 @@ from cli.chapter_flow import (
 )
 from core.llm import LLMClient
 from core.project import ProjectManager, NovelProject
-from agents.exporter import NovelExporter
+from agents.exporter import NovelExporter, open_file_in_viewer
 
 
 def manage_settings(llm: LLMClient) -> None:
@@ -293,19 +293,27 @@ def export_novel_flow(project: NovelProject) -> None:
         return
 
     exporter = NovelExporter(project)
-    with console.status("[bold cyan]📦 Mengompilasi naskah novel & ilustrasi ke Markdown dan Word (.docx)...[/bold cyan]"):
+    with console.status("[bold cyan]📦 Mengompilasi naskah novel & ilustrasi ke HTML Reader, Markdown, dan Word (.docx)...[/bold cyan]"):
         md_file, docx_file = exporter.export_all()
+        html_file = exporter.export_html()
 
     illus_ch_count = len(project.list_illustrated_chapters())
     console.print(Panel(
-        f"[bold green]✓ Novel berhasil diekspor![/bold green]\n\n"
-        f"📄 [bold]File Markdown:[/bold] [cyan]{md_file}[/cyan]\n"
-        f"📘 [bold]File Word (DOCX):[/bold] [cyan]{docx_file}[/cyan]\n"
-        f"🖼️ [bold]Folder Ilustrasi:[/bold] [cyan]{project.illustrations_dir}[/cyan]\n\n"
+        f"[bold green]✓ Novel beserta ilustrasinya berhasil diekspor![/bold green]\n\n"
+        f"🌐 [bold]E-Book Web Visual (HTML + Gambar Tertanam):[/bold] [bold cyan]{html_file}[/bold cyan]\n"
+        f"📘 [bold]File Microsoft Word (DOCX + Gambar):[/bold] [cyan]{docx_file}[/cyan]\n"
+        f"📄 [bold]File Markdown (MD):[/bold] [cyan]{md_file}[/cyan]\n"
+        f"🖼️ [bold]Folder File Gambar Asli (.jpg):[/bold] [cyan]{project.illustrations_dir}[/cyan]\n\n"
         f"[dim]Total bab yang diekspor: {len(drafted)} bab ({illus_ch_count} bab memiliki ilustrasi).[/dim]",
         title="🎉 Ekspor Berhasil",
         border_style="green",
     ))
+
+    if Confirm.ask("[bold yellow]🌐 Buka E-Book Web Visual (.html) di Browser sekarang untuk melihat cerita & gambarnya?[/bold yellow]", default=True):
+        if open_file_in_viewer(html_file):
+            console.print("[bold green]✓ Membuka E-Book Visual di Browser...[/bold green]")
+        else:
+            console.print(f"[yellow]Silakan klik/buka file ini di Browser: {html_file}[/yellow]")
 
 
 def check_api_key_prompt(llm: LLMClient) -> None:

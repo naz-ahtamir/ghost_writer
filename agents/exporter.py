@@ -1,13 +1,55 @@
 """Novel Exporter: Compiles manuscript and chapter illustrations into Markdown and DOCX."""
 
+import base64
 import html
+import os
 import re
+import shutil
+import subprocess
+import webbrowser
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.project import NovelProject
 from agents.illustrator import IllustratorAgent
+
+
+def open_file_in_viewer(file_path: Path) -> bool:
+    """Attempt to open a file (.html, .jpg, .docx) in the user's browser or system viewer."""
+    file_path = Path(file_path).resolve()
+    if not file_path.exists():
+        return False
+
+    # 1. Android / Termux support
+    if shutil.which("termux-open"):
+        try:
+            subprocess.Popen(
+                ["termux-open", str(file_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception:
+            pass
+
+    # 2. Linux Desktop (xdg-open)
+    if shutil.which("xdg-open"):
+        try:
+            subprocess.Popen(
+                ["xdg-open", str(file_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except Exception:
+            pass
+
+    # 3. Windows / macOS / Python webbrowser fallback
+    try:
+        return webbrowser.open(file_path.as_uri())
+    except Exception:
+        return False
 
 
 class NovelExporter:
@@ -17,9 +59,10 @@ class NovelExporter:
         self.project = project
 
     def export_all(self) -> Tuple[Path, Path]:
-        """Export novel to both Markdown and DOCX formats."""
+        """Export novel to Markdown, DOCX, and Illustrated HTML Reader formats."""
         md_path = self.export_markdown()
         docx_path = self.export_docx()
+        self.export_html()
         return md_path, docx_path
 
     def _get_chapter_markdown_with_illustrations(self, chapter_num: int) -> str:
@@ -317,4 +360,240 @@ class NovelExporter:
             for arc_name, src_path in media_files:
                 zf.write(src_path, arc_name)
 
+        return file_path
+
+    def export_html(self, specific_chapter: Optional[int] = None) -> Path:
+        """Export an interactive, self-contained Illustrated Web Reader (.html) with Base64 embedded images."""
+        meta = self.project.metadata
+        title = html.escape(meta.get("title", "Novel"))
+        author = html.escape(meta.get("author", "Penulis"))
+        genre = html.escape(meta.get("genre", ""))
+        premise = html.escape(meta.get("premise", ""))
+
+        if specific_chapter is not None:
+            chapter_nums = [specific_chapter]
+            out_name = f"{self.project.project_dir.name}_bab_{specific_chapter:02d}_reader.html"
+        else:
+            chapter_nums = self.project.list_drafted_chapters()
+            out_name = f"{self.project.project_dir.name}.html"
+
+        img_pattern = re.compile(r"^!\[(.*?)\]\((.*?)\)$")
+        chapters_html_blocks: List[str] = []
+        toc_links: List[str] = []
+
+        outline_chapters = {
+            ch.get("chapter_number"): ch.get("title", f"Bab {ch.get('chapter_number')}")
+            for ch in self.project.outline.get("chapters", [])
+        }
+
+        for num in chapter_nums:
+            ch_title = html.escape(outline_chapters.get(num, f"Bab {num}"))
+            toc_links.append(f'<li><a href="#bab-{num}">Bab {num}: {ch_title}</a></li>')
+
+            content = self._get_chapter_markdown_with_illustrations(num)
+            lines = content.split("\n")
+            ch_elements: List[str] = [f'<section class="chapter" id="bab-{num}">']
+
+            for line in lines:
+                line_str = line.strip()
+                if not line_str or line_str.startswith("<!-- GHOSTWRITER_ILLUSTRATION"):
+                    continue
+
+                img_match = img_pattern.match(line_str)
+                if img_match:
+                    alt_text, img_ref = img_match.group(1), img_match.group(2)
+                    resolved = self._resolve_illustration_path(img_ref)
+                    img_src = html.escape(img_ref)
+                    if resolved and resolved.exists():
+                        try:
+                            b64_data = base64.b64encode(resolved.read_bytes()).decode("ascii")
+                            mime = "image/png" if resolved.suffix.lower() == ".png" else "image/jpeg"
+                            img_src = f"data:{mime};base64,{b64_data}"
+                        except Exception:
+                            pass
+                    ch_elements.append(
+                        f'<figure class="illustration-frame">'
+                        f'<img src="{img_src}" alt="{html.escape(alt_text)}" loading="lazy"/>'
+                        f'<figcaption class="illus-title">{html.escape(alt_text)}</figcaption>'
+                        f'</figure>'
+                    )
+                    continue
+
+                if line_str.startswith("# "):
+                    h_txt = html.escape(line_str[2:].strip())
+                    ch_elements.append(f'<h2 class="chapter-title">{h_txt}</h2>')
+                elif line_str.startswith("## "):
+                    h2_txt = html.escape(line_str[3:].strip())
+                    ch_elements.append(f'<h3>{h2_txt}</h3>')
+                elif line_str in ("***", "---", "* * *"):
+                    ch_elements.append('<div class="scene-sep">* &nbsp; * &nbsp; *</div>')
+                elif line_str.startswith("*") and line_str.endswith("*") and len(line_str) > 2:
+                    cap_txt = html.escape(line_str.strip("*").strip())
+                    ch_elements.append(f'<p class="illus-caption">“{cap_txt}”</p>')
+                else:
+                    ch_elements.append(f'<p>{html.escape(line_str)}</p>')
+
+            ch_elements.append("</section>")
+            chapters_html_blocks.append("\n".join(ch_elements))
+
+        full_html = f"""<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title} — GhostWriter Illustrated Reader</title>
+  <style>
+    :root {{
+      --bg: #0f1117;
+      --card: #181b24;
+      --text: #e6e8ee;
+      --muted: #9aa3b5;
+      --accent: #7aa2f7;
+      --border: #2a3040;
+    }}
+    body.light {{
+      --bg: #f7f4ed;
+      --card: #ffffff;
+      --text: #22242a;
+      --muted: #626875;
+      --accent: #3b5bdb;
+      --border: #e2dccf;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Georgia', 'Times New Roman', serif;
+      line-height: 1.85;
+      font-size: 18px;
+      transition: background 0.25s, color 0.25s;
+    }}
+    .topbar {{
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: system-ui, sans-serif;
+    }}
+    .btn {{
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+    }}
+    .container {{
+      max-width: 820px;
+      margin: 36px auto;
+      padding: 0 20px 80px;
+    }}
+    .hero {{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 36px 28px;
+      text-align: center;
+      margin-bottom: 36px;
+    }}
+    .hero h1 {{ margin: 0 0 10px; font-size: 2.2rem; color: var(--accent); }}
+    .hero .meta {{ color: var(--muted); font-style: italic; margin-bottom: 18px; }}
+    .hero .premise {{ font-size: 1rem; color: var(--text); text-align: left; background: rgba(122,162,247,0.07); padding: 16px; border-radius: 8px; }}
+    .toc {{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 28px;
+      margin-bottom: 40px;
+      font-family: system-ui, sans-serif;
+    }}
+    .toc h3 {{ margin-top: 0; color: var(--accent); }}
+    .toc ul {{ padding-left: 20px; margin: 0; }}
+    .toc a {{ color: var(--text); text-decoration: none; }}
+    .toc a:hover {{ color: var(--accent); text-decoration: underline; }}
+    .chapter {{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 40px 34px;
+      margin-bottom: 48px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.22);
+    }}
+    .chapter-title {{
+      text-align: center;
+      font-size: 1.85rem;
+      color: var(--accent);
+      margin-top: 0;
+      margin-bottom: 32px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .chapter p {{ margin: 0 0 1.25em; text-align: justify; }}
+    .scene-sep {{ text-align: center; color: var(--muted); margin: 28px 0; font-size: 1.2rem; }}
+    .illustration-frame {{
+      margin: 34px 0 10px;
+      text-align: center;
+      background: #08090d;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    }}
+    .illustration-frame img {{
+      width: 100%;
+      height: auto;
+      display: block;
+    }}
+    .illus-title {{
+      font-family: system-ui, sans-serif;
+      font-size: 0.85rem;
+      color: var(--accent);
+      padding: 10px 14px 6px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }}
+    .illus-caption {{
+      text-align: center !important;
+      font-style: italic;
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 4px !important;
+      margin-bottom: 30px !important;
+    }}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div><strong>🖋️ {title}</strong> <span style="color:var(--muted);font-size:13px;">| GhostWriter Illustrated Reader</span></div>
+    <button class="btn" onclick="document.body.classList.toggle('light')">🌗 Mode Gelap / Terang</button>
+  </div>
+  <div class="container">
+    <div class="hero">
+      <h1>{title}</h1>
+      <div class="meta">Karya: {author} &nbsp;•&nbsp; Genre: {genre}</div>
+      <div class="premise">{premise}</div>
+    </div>
+    <div class="toc">
+      <h3>📑 Daftar Bab & Ilustrasi</h3>
+      <ul>
+        {"".join(toc_links)}
+      </ul>
+    </div>
+    {"".join(chapters_html_blocks)}
+  </div>
+</body>
+</html>"""
+
+        file_path = self.project.exports_dir / out_name
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(full_html)
         return file_path

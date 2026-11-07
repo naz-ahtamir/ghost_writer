@@ -401,6 +401,22 @@ def view_chapter_flow(project: NovelProject) -> None:
     if illus_list:
         display_illustrations_list(illus_list, num)
 
+    from agents.exporter import NovelExporter, open_file_in_viewer
+    exporter = NovelExporter(project)
+    html_reader_path = exporter.export_html(specific_chapter=num)
+    console.print(
+        f"\n[bold green]🌐 Halaman Web Bacaan + Gambar Bab {num} siap di:[/bold green] "
+        f"[bold cyan]{html_reader_path}[/bold cyan]"
+    )
+    if Confirm.ask(
+        f"[bold yellow]Buka tampilan visual Bab {num} beserta gambar ilustrasinya di Browser sekarang?[/bold yellow]",
+        default=True,
+    ):
+        if open_file_in_viewer(html_reader_path):
+            console.print("[bold green]✓ Membuka cerita & ilustrasi di Browser...[/bold green]")
+        else:
+            console.print(f"[yellow]Silakan buka file berikut di Browser Anda: {html_reader_path}[/yellow]")
+
 
 def display_illustrations_list(illustrations: List[Dict[str, Any]], ch_num: int) -> None:
     """Display the 3 chapter illustrations (Opening, Middle, Climax) with prompts and file paths."""
