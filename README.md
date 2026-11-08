@@ -81,10 +81,30 @@ Anda dapat memasukkan API Key secara interaktif dari menu aplikasi atau menyimpa
 
 ```env
 GROK_API_KEY=xai-...
+GROK_MODEL=grok-3
+GROK_REASONING_EFFORT=low
 GEMINI_API_KEY=AIzaSy...
 AI_PROVIDER=grok
 NOVEL_DEFAULT_LANGUAGE=Indonesian
 ```
+
+---
+
+## ⚡ Efisiensi Token & Prompt Caching xAI Grok
+
+GhostWriter dilengkapi optimasi token tingkat lanjut untuk engine **xAI Grok**:
+
+1. **Pemantauan Batas Konteks 200k (`prompt_tokens`):**
+   - Telemetri `prompt_tokens` dicatat pada setiap panggilan API.
+   - Jika konteks mendekati 200k (threshold $\ge$ 160k token) atau melewatinya, sistem otomatis memberikan peringatan, memangkas riwayat teks bab tengah secara cerdas (*smart context pruning*), dan memaksa *reasoning effort* ke level `low`.
+2. **Sticky Routing & Prompt Cache Hit (`x-grok-conv-id` & `reasoning_content`):**
+   - Setiap proyek novel diikat ke header konsisten `x-grok-conv-id` (`gw-proj-<nama-novel>`), memastikan request selalu diarahkan ke node server backend yang sama di infrastruktur xAI.
+   - Field `cached_tokens` dipantau untuk memastikan cache hit rate tinggi.
+   - Jejak `reasoning_content` dari respons asisten otomatis disertakan kembali pada percakapan riwayat agar prefix cache xAI tidak terputus.
+3. **Pengurangan Intensitas Penalaran (`reasoning_effort: low`):**
+   - Secara default disetel ke `low` untuk tugas-tugas pemformatan JSON, perancangan karakter, worldbuilding, dan outline bab.
+   - Menghemat ratusan hingga ribuan *reasoning output tokens* per request tanpa mengurangi kualitas sastra.
+   - Dapat diatur kapan saja di **Menu 9: Pengaturan AI**.
 
 ---
 

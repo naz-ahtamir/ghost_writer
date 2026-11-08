@@ -43,20 +43,38 @@ def manage_settings(llm: LLMClient) -> None:
     curr_key = llm.api_key or "[Belum Diisi]"
     img_prov = config.get_image_provider()
     img_model = config.get_image_model(img_prov)
+    grok_effort = config.get_grok_reasoning_effort()
+    usage_stats = llm.get_cumulative_usage()
 
     console.print(f"[bold]Provider AI Teks saat ini:[/bold] [bold cyan]{prov_name}[/bold cyan]")
     console.print(f"[bold]Model Teks saat ini:[/bold] [bold green]{llm.model}[/bold green]")
     console.print(f"[bold]API Key saat ini:[/bold] {curr_key}")
+    console.print(f"[bold]Intensitas Penalaran Grok:[/bold] [bold yellow]{grok_effort.upper()}[/bold yellow] [dim]('low' sangat hemat token & cepat)[/dim]")
     console.print(f"[bold]Engine Ilustrasi Gambar:[/bold] [bold magenta]{img_prov.upper()}[/bold magenta] [dim]({img_model})[/dim]")
+
+    if usage_stats.get("requests_count", 0) > 0:
+        p_tok = usage_stats["prompt_tokens"]
+        c_tok = usage_stats["cached_tokens"]
+        hit_pct = usage_stats["cache_hit_rate"]
+        out_tok = usage_stats["completion_tokens"]
+        r_tok = usage_stats["reasoning_tokens"]
+        tot_tok = usage_stats["total_tokens"]
+        console.print(
+            f"[bold dim]📊 Penggunaan Token Sesi ({usage_stats['requests_count']} request):[/bold dim] "
+            f"[dim]Prompt: {p_tok:,} (Cached: {c_tok:,} | {hit_pct:.1f}%) | "
+            f"Output: {out_tok:,} (Reasoning: {r_tok:,}) | Total: {tot_tok:,}[/dim]"
+        )
 
     console.print("\n[bold cyan]Opsi Pengaturan:[/bold cyan]")
     console.print("  [white]1.[/white] Ganti Provider AI Teks (xAI Grok / Google Gemini)")
     console.print("  [white]2.[/white] Masukkan / Ubah API Key")
     console.print("  [white]3.[/white] Ganti Model AI Teks")
     console.print("  [white]4.[/white] Ganti Engine & Model Ilustrasi Gambar (Flux Realism Uncensored / Grok / Gemini / Local SD)")
-    console.print("  [white]5.[/white] Kembali")
+    console.print("  [white]5.[/white] Atur Intensitas Penalaran Grok (Reasoning Effort: low / medium / high)")
+    console.print("  [white]6.[/white] Reset Statistik Penggunaan Token Sesi")
+    console.print("  [white]7.[/white] Kembali")
 
-    opt = Prompt.ask("\nPilih opsi", choices=["1", "2", "3", "4", "5"], default="5")
+    opt = Prompt.ask("\nPilih opsi", choices=["1", "2", "3", "4", "5", "6", "7"], default="7")
     if opt == "1":
         new_prov = "gemini" if prov == "grok" else "grok"
         new_name = "Google Gemini" if new_prov == "gemini" else "xAI Grok"
@@ -122,6 +140,21 @@ def manage_settings(llm: LLMClient) -> None:
             sd_url = Prompt.ask("Masukkan URL API Stable Diffusion Lokal", default=sd_url)
         config.save_image_settings(chosen_prov, chosen_model, sd_url)
         console.print(f"[bold green]✓ Engine Ilustrasi diubah ke: {chosen_prov.upper()} ({chosen_model})[/bold green]")
+
+    elif opt == "5":
+        console.print("\n[bold cyan]Atur Intensitas Penalaran xAI Grok (Reasoning Effort):[/bold cyan]")
+        console.print("  [bold green]1. Low[/bold green]    - [bold](Rekomendasi Utama)[/bold] Sangat hemat token, respons cepat, cocok untuk novel & JSON.")
+        console.print("  [bold yellow]2. Medium[/bold yellow] - Keseimbangan penalaran standar.")
+        console.print("  [bold red]3. High[/bold red]   - Penalaran mendalam maksimum (memakai ratusan token output ekstra).")
+        eff_choice = Prompt.ask("Pilih level reasoning effort", choices=["1", "2", "3"], default="1")
+        eff_map = {"1": "low", "2": "medium", "3": "high"}
+        chosen_eff = eff_map[eff_choice]
+        config.save_grok_reasoning_effort(chosen_eff)
+        console.print(f"[bold green]✓ Intensitas penalaran Grok berhasil diatur ke: {chosen_eff.upper()}[/bold green]")
+
+    elif opt == "6":
+        llm.reset_cumulative_usage()
+        console.print("[bold green]✓ Statistik penggunaan token sesi berhasil di-reset![/bold green]")
 
 
 def delete_project_flow(current_project: Optional[NovelProject] = None) -> Optional[NovelProject]:
@@ -435,11 +468,14 @@ def main() -> None:
                 created = run_new_novel_wizard(llm)
                 if created is not None:
                     current_project = created
+                    llm.bind_project(current_project)
             except Exception as e:
                 console.print(f"[bold red]Terjadi kesalahan saat membuat novel:[/bold red] {e}")
 
         elif choice == "2":
             current_project = select_existing_project(llm, current_project)
+            if current_project is not None:
+                llm.bind_project(current_project)
 
         elif choice == "3":
             if not current_project:

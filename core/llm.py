@@ -7,6 +7,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any, Dict, List, Optional, Union
 
 import config
@@ -159,7 +160,79 @@ class LLMClient:
         self.model = model or config.get_active_model(self.provider)
         self._client = None
         self.available_models: List[str] = []
+        self.conversation_id: str = f"gw-session-{uuid.uuid4().hex[:12]}"
+        self.last_usage: Dict[str, Any] = {}
+        self.cumulative_usage: Dict[str, Any] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cached_tokens": 0,
+            "reasoning_tokens": 0,
+            "requests_count": 0,
+        }
+        self.last_reasoning_content: Optional[str] = None
+        self.context_near_limit: bool = False
         self._init_client()
+
+    def set_conversation_id(self, conv_id: str) -> None:
+        """Set a stable conversation ID for sticky routing and prompt cache affinity."""
+        clean = str(conv_id).strip()
+        if clean:
+            self.conversation_id = clean
+
+    def bind_project(self, project: Any) -> None:
+        """Bind conversation ID to active novel project to maximize cache hit rate across turns."""
+        if project and hasattr(project, "project_dir"):
+            slug = getattr(project, "metadata", {}).get("slug") or project.project_dir.name
+            self.set_conversation_id(f"gw-proj-{slug}")
+
+    def get_last_usage(self) -> Dict[str, Any]:
+        """Return token telemetry from the most recent request."""
+        return dict(self.last_usage)
+
+    def get_cumulative_usage(self) -> Dict[str, Any]:
+        """Return session-wide accumulated token telemetry."""
+        stats = dict(self.cumulative_usage)
+        p_tok = stats.get("prompt_tokens", 0)
+        c_tok = stats.get("cached_tokens", 0)
+        stats["cache_hit_rate"] = (c_tok / p_tok * 100) if p_tok > 0 else 0.0
+        return stats
+
+    def reset_cumulative_usage(self) -> None:
+        """Reset session-wide token usage counters."""
+        self.cumulative_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cached_tokens": 0,
+            "reasoning_tokens": 0,
+            "requests_count": 0,
+        }
+
+    def prune_context(self, text: str, max_chars: int = 400000) -> str:
+        """Intelligently prune large text to prevent exceeding the 200k token boundary."""
+        if not text or len(text) <= max_chars:
+            return text
+        half = max_chars // 2
+        head = text[:half]
+        tail = text[-half:]
+        marker = (
+            "\n\n[... PERINGATAN EFISIENSI TOKEN: Bagian tengah teks riwayat naskah dipangkas otomatis "
+            "agar tidak melewati batas 200k token xAI Grok. Poin adegan terbaru tetap utuh. ...]\n\n"
+        )
+        return f"{head}{marker}{tail}"
+
+    def format_chat_message(
+        self,
+        role: str,
+        content: str,
+        reasoning_content: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build chat message dictionary, preserving reasoning_content for assistant turns to keep prefix cache alive."""
+        msg: Dict[str, Any] = {"role": role, "content": content}
+        if role == "assistant" and reasoning_content:
+            msg["reasoning_content"] = reasoning_content
+        return msg
 
     def set_provider(self, provider: str, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
         """Switch AI provider (grok or gemini) and reinitialize."""
@@ -252,49 +325,169 @@ class LLMClient:
         system_instruction: Optional[str] = None,
         temperature: float = 0.7,
         is_json: bool = False,
+        reasoning_effort: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Execute a single generation request with a specific model."""
+        """Execute a single generation request with telemetry, cache routing, and reasoning control."""
         ctx = _create_ssl_context()
 
         if self.provider == "grok" or self._client == "grok_rest":
             url = "https://api.x.ai/v1/chat/completions"
-            messages: List[Dict[str, str]] = []
-            if system_instruction:
-                messages.append({"role": "system", "content": system_instruction})
-            messages.append({"role": "user", "content": prompt})
+
+            # 1. Check prompt length and auto-prune if approaching the 200k boundary
+            active_prompt = prompt
+            if len(active_prompt) > 400000:
+                safe_log("[xAI Grok Token] ⚠️ Teks prompt sangat besar (>400k karakter), memangkas bagian tengah teks...")
+                active_prompt = self.prune_context(active_prompt, max_chars=360000)
+
+            # 2. Build messages list (preserving reasoning_content on assistant messages for cache affinity)
+            if messages:
+                chat_messages = []
+                for m in messages:
+                    cm = {"role": m.get("role", "user"), "content": m.get("content", "")}
+                    if cm["role"] == "assistant" and m.get("reasoning_content"):
+                        cm["reasoning_content"] = m["reasoning_content"]
+                    chat_messages.append(cm)
+            else:
+                chat_messages = []
+                if system_instruction:
+                    chat_messages.append({"role": "system", "content": system_instruction})
+                chat_messages.append({"role": "user", "content": active_prompt})
+
+            # 3. Determine reasoning effort
+            # If context was near 200k or user configured, set low effort to reduce output reasoning tokens
+            configured_effort = config.get_grok_reasoning_effort()
+            effective_effort = (
+                "low" if self.context_near_limit else (reasoning_effort or configured_effort)
+            )
 
             payload: Dict[str, Any] = {
                 "model": model_name,
-                "messages": messages,
+                "messages": chat_messages,
                 "temperature": temperature,
             }
             if is_json:
                 payload["response_format"] = {"type": "json_object"}
 
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Connection": "close",
-                },
-                method="POST",
-            )
+            include_reasoning = effective_effort in ("low", "medium", "high", "xhigh")
+            if include_reasoning:
+                payload["reasoning_effort"] = effective_effort
+                payload["reasoning"] = {"effort": effective_effort}
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+                "Connection": "close",
+                "x-grok-conv-id": self.conversation_id,
+            }
+
+            resp_data = None
             try:
+                data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(url, data=data, headers=headers, method="POST")
                 with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
-                    choices = resp_data.get("choices", [])
-                    if choices and "message" in choices[0]:
-                        content = choices[0]["message"].get("content", "") or ""
-                        if self._is_refusal_response(content):
-                            raise RuntimeError(f"Model menolak respons: {content[:120]}")
-                        return content
-                    raise RuntimeError("Respons dari Grok kosong.")
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="replace")
-                raise RuntimeError(f"xAI Grok API Error ({e.code}): {err_body}")
+                # Fallback: if legacy model rejects reasoning parameters with 400 Bad Request, retry without reasoning
+                if e.code == 400 and include_reasoning and any(term in err_body.lower() for term in ("reasoning", "unexpected property", "invalid parameter")):
+                    payload.pop("reasoning_effort", None)
+                    payload.pop("reasoning", None)
+                    data = json.dumps(payload).encode("utf-8")
+                    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+                    try:
+                        with urllib.request.urlopen(req, timeout=120, context=ctx) as retry_resp:
+                            resp_data = json.loads(retry_resp.read().decode("utf-8"))
+                    except Exception as retry_err:
+                        raise RuntimeError(f"xAI Grok API Error ({e.code}): {err_body} (Retry tanpa reasoning: {retry_err})")
+                else:
+                    raise RuntimeError(f"xAI Grok API Error ({e.code}): {err_body}")
+
+            if not resp_data:
+                raise RuntimeError("Respons dari Grok kosong.")
+
+            # 4. Extract token usage, cache metrics, and reasoning details
+            usage = resp_data.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_tokens = usage.get("total_tokens", 0)
+
+            pt_details = usage.get("prompt_tokens_details") or {}
+            cached_tokens = pt_details.get("cached_tokens")
+            if cached_tokens is None:
+                cached_tokens = usage.get("cached_tokens", 0)
+
+            ct_details = usage.get("completion_tokens_details") or {}
+            reasoning_tokens = ct_details.get("reasoning_tokens")
+            if reasoning_tokens is None:
+                reasoning_tokens = usage.get("reasoning_tokens", 0)
+
+            cache_pct = (cached_tokens / prompt_tokens * 100) if prompt_tokens > 0 else 0.0
+
+            # Telemetry logging
+            effort_tag = effective_effort if include_reasoning else "none"
+            log_line = (
+                f"[xAI Grok Token] Prompt: {prompt_tokens:,} "
+                f"(Cached: {cached_tokens:,} | {cache_pct:.1f}%) | "
+                f"Output: {completion_tokens:,} (Reasoning: {reasoning_tokens:,} [{effort_tag}]) | "
+                f"Total: {total_tokens:,}"
+            )
+            safe_log(log_line)
+
+            # Token boundary alerts (200k check)
+            if prompt_tokens >= config.GROK_TOKEN_CONTEXT_LIMIT:
+                self.context_near_limit = True
+                safe_log(
+                    f"[xAI Grok Token Warning] 🚨 PERINGATAN: prompt_tokens ({prompt_tokens:,}) MELEWATI batas 200k! "
+                    f"Sistem mengaktifkan pemangkasan riwayat konteks & memaksa reasoning_effort='low'."
+                )
+            elif prompt_tokens >= config.GROK_TOKEN_WARN_THRESHOLD:
+                self.context_near_limit = True
+                safe_log(
+                    f"[xAI Grok Token Warning] ⚠️ prompt_tokens ({prompt_tokens:,}) mendekati batas 200k. "
+                    f"Mengaktifkan reasoning_effort='low' untuk memangkas output tokens."
+                )
+            else:
+                self.context_near_limit = False
+
+            # Cache hit target alert
+            if prompt_tokens > 1000 and cached_tokens == 0:
+                safe_log(
+                    f"[xAI Grok Cache] 💡 Cache miss (0 cached tokens). "
+                    f"Pastikan header 'x-grok-conv-id' konsisten ('{self.conversation_id}') "
+                    f"dan kirimkan kembali 'reasoning_content' jika ada riwayat percakapan."
+                )
+
+            # Update usage state
+            self.last_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "cached_tokens": cached_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "cache_hit_rate": cache_pct,
+                "reasoning_effort": effort_tag,
+                "conversation_id": self.conversation_id,
+                "timestamp": time.time(),
+            }
+            self.cumulative_usage["prompt_tokens"] += prompt_tokens
+            self.cumulative_usage["completion_tokens"] += completion_tokens
+            self.cumulative_usage["total_tokens"] += total_tokens
+            self.cumulative_usage["cached_tokens"] += cached_tokens
+            self.cumulative_usage["reasoning_tokens"] += reasoning_tokens
+            self.cumulative_usage["requests_count"] += 1
+
+            # Extract message content and save reasoning_content for potential next turns
+            choices = resp_data.get("choices", [])
+            if choices and "message" in choices[0]:
+                msg_obj = choices[0]["message"]
+                self.last_reasoning_content = msg_obj.get("reasoning_content")
+                content = msg_obj.get("content", "") or ""
+                if self._is_refusal_response(content):
+                    raise RuntimeError(f"Model menolak respons: {content[:120]}")
+                return content
+
+            raise RuntimeError("Respons dari Grok kosong.")
 
         else:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
@@ -342,6 +535,32 @@ class LLMClient:
                 try:
                     with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
                         resp_data = json.loads(resp.read().decode("utf-8"))
+
+                        # Capture Gemini usage metadata
+                        usage_meta = resp_data.get("usageMetadata", {})
+                        if usage_meta:
+                            p_tok = usage_meta.get("promptTokenCount", 0)
+                            c_tok = usage_meta.get("candidatesTokenCount", 0)
+                            tot_tok = usage_meta.get("totalTokenCount", 0)
+                            cached_tok = usage_meta.get("cachedContentTokenCount", 0)
+                            cache_pct = (cached_tok / p_tok * 100) if p_tok > 0 else 0.0
+                            self.last_usage = {
+                                "prompt_tokens": p_tok,
+                                "completion_tokens": c_tok,
+                                "total_tokens": tot_tok,
+                                "cached_tokens": cached_tok,
+                                "reasoning_tokens": 0,
+                                "cache_hit_rate": cache_pct,
+                                "reasoning_effort": "n/a",
+                                "conversation_id": "gemini",
+                                "timestamp": time.time(),
+                            }
+                            self.cumulative_usage["prompt_tokens"] += p_tok
+                            self.cumulative_usage["completion_tokens"] += c_tok
+                            self.cumulative_usage["total_tokens"] += tot_tok
+                            self.cumulative_usage["cached_tokens"] += cached_tok
+                            self.cumulative_usage["requests_count"] += 1
+
                         candidates = resp_data.get("candidates", [])
                         if candidates and "content" in candidates[0]:
                             candidate = candidates[0]
@@ -400,8 +619,10 @@ class LLMClient:
         temperature: float = 0.7,
         max_retries: int = 3,
         is_json: bool = False,
+        reasoning_effort: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
-        """Generate text using active provider with automatic retry and model fallback."""
+        """Generate text using active provider with automatic retry, reasoning effort control, and model fallback."""
         prov_label = "xAI Grok" if self.provider == "grok" else "Google Gemini"
         if not self.is_configured():
             raise ValueError(
@@ -442,6 +663,8 @@ class LLMClient:
                         system_instruction=active_sys,
                         temperature=temperature,
                         is_json=is_json,
+                        reasoning_effort=reasoning_effort,
+                        messages=messages,
                     )
                     # Remember working model so subsequent calls don't repeat failed models
                     self.model = current_model
@@ -484,13 +707,35 @@ class LLMClient:
             f"Penyebab terakhir: {last_error}"
         )
 
+    def generate_chat(
+        self,
+        messages: List[Dict[str, Any]],
+        temperature: float = 0.7,
+        reasoning_effort: Optional[str] = None,
+        max_retries: int = 3,
+    ) -> str:
+        """Execute a multi-turn chat generation preserving reasoning_content in history for prefix caching."""
+        last_user_msg = ""
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                last_user_msg = m.get("content", "")
+                break
+        return self.generate(
+            prompt=last_user_msg,
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            messages=messages,
+            max_retries=max_retries,
+        )
+
     def generate_json(
         self,
         prompt: str,
         system_instruction: Optional[str] = None,
         temperature: float = 0.5,
+        reasoning_effort: Optional[str] = "low",
     ) -> Union[Dict[str, Any], List[Any]]:
-        """Generate content and parse response as JSON."""
+        """Generate content and parse response as JSON, defaulting to low reasoning effort for token efficiency."""
         full_prompt = (
             f"{prompt}\n\n"
             "PENTING: Berikan HANYA format JSON murni yang valid tanpa teks pembuka atau penutup. "
@@ -501,6 +746,7 @@ class LLMClient:
             system_instruction=system_instruction,
             temperature=temperature,
             is_json=True,
+            reasoning_effort=reasoning_effort,
         )
         return self.extract_json(response_text)
 

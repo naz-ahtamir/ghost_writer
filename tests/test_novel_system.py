@@ -318,6 +318,136 @@ def test_grok_and_gemini_provider_switching():
     assert client.provider == "grok"
 
 
+def test_grok_token_efficiency_and_caching():
+    from core.llm import LLMClient
+    import config
+    import json
+    import io
+    from unittest.mock import patch, MagicMock
+
+    client = LLMClient(api_key="xai-test-key", provider="grok")
+
+    # 1. Verify sticky routing conversation ID
+    assert client.conversation_id.startswith("gw-")
+    client.set_conversation_id("custom-session-99")
+    assert client.conversation_id == "custom-session-99"
+
+    # 2. Verify context pruning when text approaches/exceeds 200k boundary
+    giant_text = "Narasi panjang sekali. " * 20000
+    assert len(giant_text) > 400000
+    pruned = client.prune_context(giant_text, max_chars=360000)
+    assert len(pruned) < len(giant_text)
+    assert "PERINGATAN EFISIENSI TOKEN" in pruned
+
+    # 3. Verify format_chat_message preserves reasoning_content
+    asst_msg = client.format_chat_message("assistant", "Hasil naskah bab.", "analisis_penalaran_internal")
+    assert asst_msg["role"] == "assistant"
+    assert asst_msg["content"] == "Hasil naskah bab."
+    assert asst_msg["reasoning_content"] == "analisis_penalaran_internal"
+
+    # 4. Mock xAI response and verify headers (x-grok-conv-id) and payload (reasoning_effort: "low")
+    captured_requests = []
+
+    def mock_urlopen(req, timeout=120, context=None):
+        captured_requests.append(req)
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        fake_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "{\"genre\": \"Sci-Fi\"}",
+                        "reasoning_content": "step 1: identify genre..."
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1250,
+                "completion_tokens": 150,
+                "total_tokens": 1400,
+                "prompt_tokens_details": {
+                    "cached_tokens": 1000
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 40
+                }
+            }
+        }
+        mock_resp.read.return_value = json.dumps(fake_response).encode("utf-8")
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+        res_json = client.generate_json(
+            prompt="Klasifikasikan genre",
+            system_instruction="Anda adalah kurator fiksi ilmiah",
+        )
+        assert res_json == {"genre": "Sci-Fi"}
+        assert len(captured_requests) == 1
+
+        sent_req = captured_requests[0]
+        # Check header x-grok-conv-id
+        assert sent_req.headers.get("X-grok-conv-id") == "custom-session-99" or sent_req.get_header("X-grok-conv-id") == "custom-session-99"
+
+        # Check payload: generate_json defaults to low reasoning effort
+        payload = json.loads(sent_req.data.decode("utf-8"))
+        assert payload.get("reasoning_effort") == "low"
+        assert payload.get("reasoning", {}).get("effort") == "low"
+
+        # Verify telemetry extraction
+        usage = client.get_last_usage()
+        assert usage["prompt_tokens"] == 1250
+        assert usage["cached_tokens"] == 1000
+        assert usage["completion_tokens"] == 150
+        assert usage["reasoning_tokens"] == 40
+        assert usage["cache_hit_rate"] == 80.0
+        assert client.last_reasoning_content == "step 1: identify genre..."
+
+        cum_usage = client.get_cumulative_usage()
+        assert cum_usage["requests_count"] == 1
+        assert cum_usage["prompt_tokens"] == 1250
+        assert cum_usage["cached_tokens"] == 1000
+
+    # 5. Verify 200k boundary alert & auto low reasoning effort
+    def mock_large_urlopen(req, timeout=120, context=None):
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        fake_response = {
+            "choices": [{"message": {"role": "assistant", "content": "Bab lanjutan"}}],
+            "usage": {
+                "prompt_tokens": 185000,
+                "completion_tokens": 800,
+                "total_tokens": 185800,
+                "prompt_tokens_details": {"cached_tokens": 170000},
+                "completion_tokens_details": {"reasoning_tokens": 50}
+            }
+        }
+        mock_resp.read.return_value = json.dumps(fake_response).encode("utf-8")
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=mock_large_urlopen):
+        client.generate(prompt="Lanjutkan bab 35...")
+        assert client.context_near_limit is True
+
+    # On next call, client automatically enforces low effort due to context_near_limit
+    captured_subsequent = []
+    def mock_subsequent_urlopen(req, timeout=120, context=None):
+        captured_subsequent.append(req)
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        fake_response = {
+            "choices": [{"message": {"role": "assistant", "content": "Bab 36"}}],
+            "usage": {"prompt_tokens": 500, "completion_tokens": 100, "total_tokens": 600}
+        }
+        mock_resp.read.return_value = json.dumps(fake_response).encode("utf-8")
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=mock_subsequent_urlopen):
+        client.generate(prompt="Bab 36...", reasoning_effort="high")
+        payload = json.loads(captured_subsequent[0].data.decode("utf-8"))
+        assert payload.get("reasoning_effort") == "low"
+
+
 def test_document_loader_and_article_adapter():
     import zipfile
     from core.document_loader import load_document_text
@@ -596,6 +726,7 @@ if __name__ == "__main__":
         test_delete_project()
         test_llm_json_extraction_robustness()
         test_grok_and_gemini_provider_switching()
+        test_grok_token_efficiency_and_caching()
         test_scene_planner_and_beat_by_beat_writer()
         test_refusal_detection()
         test_document_loader_and_article_adapter()

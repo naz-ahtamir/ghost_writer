@@ -49,6 +49,9 @@ GROK_MODELS = [
     "grok-beta",
 ]
 DEFAULT_GROK_MODEL = os.getenv("GROK_MODEL", "grok-3")
+DEFAULT_GROK_REASONING_EFFORT = os.getenv("GROK_REASONING_EFFORT", "low").strip().lower()
+GROK_TOKEN_CONTEXT_LIMIT = int(os.getenv("GROK_TOKEN_CONTEXT_LIMIT", "200000"))
+GROK_TOKEN_WARN_THRESHOLD = int(os.getenv("GROK_TOKEN_WARN_THRESHOLD", "160000"))
 
 GEMINI_MODELS = [
     "gemini-2.5-flash",
@@ -160,13 +163,20 @@ def get_active_model(provider: str = None) -> str:
     return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
 
 
+def get_grok_reasoning_effort() -> str:
+    """Retrieve active xAI Grok reasoning effort level ('low', 'medium', 'high', 'xhigh')."""
+    effort = os.getenv("GROK_REASONING_EFFORT", DEFAULT_GROK_REASONING_EFFORT).strip().lower()
+    return effort if effort in ("low", "medium", "high", "xhigh") else "low"
+
+
 def save_settings(
     provider: str,
     api_key: str,
     model: str,
     language: str = DEFAULT_LANGUAGE,
+    grok_reasoning_effort: str = None,
 ) -> None:
-    """Save provider, API key, and model to .env file."""
+    """Save provider, API key, model, and reasoning effort to .env file."""
     provider = provider.strip().lower()
     api_key = api_key.strip()
     model = model.strip()
@@ -174,6 +184,7 @@ def save_settings(
     # Read existing keys to preserve the other provider's credentials
     grok_key = api_key if provider == "grok" else get_api_key("grok")
     grok_model = model if provider == "grok" else get_active_model("grok")
+    effort = (grok_reasoning_effort or get_grok_reasoning_effort()).strip().lower()
     gemini_key = api_key if provider == "gemini" else get_api_key("gemini")
     gemini_model = model if provider == "gemini" else get_active_model("gemini")
     img_prov = get_image_provider()
@@ -184,6 +195,7 @@ def save_settings(
         f"AI_PROVIDER={provider}",
         f"GROK_API_KEY={grok_key}",
         f"GROK_MODEL={grok_model}",
+        f"GROK_REASONING_EFFORT={effort}",
         f"GEMINI_API_KEY={gemini_key}",
         f"GEMINI_MODEL={gemini_model}",
         f"NOVEL_DEFAULT_LANGUAGE={language}",
@@ -198,9 +210,24 @@ def save_settings(
     os.environ["AI_PROVIDER"] = provider
     os.environ["GROK_API_KEY"] = grok_key
     os.environ["GROK_MODEL"] = grok_model
+    os.environ["GROK_REASONING_EFFORT"] = effort
     os.environ["GEMINI_API_KEY"] = gemini_key
     os.environ["GEMINI_MODEL"] = gemini_model
     os.environ["NOVEL_DEFAULT_LANGUAGE"] = language
+
+
+def save_grok_reasoning_effort(effort: str) -> None:
+    """Update and persist xAI Grok reasoning effort."""
+    valid_effort = effort.strip().lower()
+    if valid_effort not in ("low", "medium", "high", "xhigh"):
+        valid_effort = "low"
+    active_prov = get_provider()
+    save_settings(
+        provider=active_prov,
+        api_key=get_api_key(active_prov),
+        model=get_active_model(active_prov),
+        grok_reasoning_effort=valid_effort,
+    )
 
 
 def save_image_settings(

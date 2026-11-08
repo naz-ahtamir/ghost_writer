@@ -308,8 +308,8 @@ class NovelProject:
                 numbers.append(int(m.group(1)))
         return sorted(numbers)
 
-    def get_continuity_summary(self, up_to_chapter: Optional[int] = None) -> str:
-        """Generate a compact summary of prior chapters to feed into prompt context."""
+    def get_continuity_summary(self, up_to_chapter: Optional[int] = None, max_recent_chapters: int = 6) -> str:
+        """Generate a compact summary of prior chapters to feed into prompt context with sliding window token efficiency."""
         drafted = self.list_drafted_chapters()
         if up_to_chapter is not None:
             drafted = [num for num in drafted if num < up_to_chapter]
@@ -323,10 +323,20 @@ class NovelProject:
             for ch in self.outline.get("chapters", [])
         }
 
-        for num in drafted:
+        # Sliding window: if there are many drafted chapters, compress older ones into one-line milestones
+        # and retain rich snippet detail only for recent chapters.
+        older_chapters = drafted[:-max_recent_chapters] if len(drafted) > max_recent_chapters else []
+        recent_chapters = drafted[-max_recent_chapters:] if len(drafted) > max_recent_chapters else drafted
+
+        if older_chapters:
+            older_items = [f"Bab {num}: {outline_chapters.get(num, '')}" for num in older_chapters]
+            summary_lines.append(f"### Kilas Balik Bab Terdahulu ({len(older_items)} bab):")
+            summary_lines.append(", ".join(older_items) + " (Fondasi alur telah terlaksana sesuai rancangan).\n")
+
+        for num in recent_chapters:
             title = outline_chapters.get(num, f"Bab {num}")
             text = self.get_chapter(num) or ""
-            # Take last ~400 words or a summary to capture recent events
+            # Take last ~200 words to capture recent events
             words = text.split()
             last_snippet = " ".join(words[-200:]) if len(words) > 200 else text
             summary_lines.append(f"### {title} (Bab {num})")
