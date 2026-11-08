@@ -694,6 +694,25 @@ def test_chapter_illustrations_and_visual_consistency():
 
 
     # 7. Verify JPEG Normalization and Local Reader Server
+    # Selective export: only the chosen format is produced
+    with tempfile.TemporaryDirectory() as sel_tmp:
+        sel_proj = NovelProject(Path(sel_tmp) / "sel_novel")
+        sel_proj.save_metadata({"title": "Selektif", "author": "T", "genre": "x", "premise": "y"})
+        sel_proj.save_chapter(1, "# Bab 1: Awal\n\nIsi bab.")
+        sel_exp = NovelExporter(sel_proj)
+        only_md = sel_exp.export_selected(["md"], sync_public=False)
+        assert set(only_md.keys()) == {"md"}
+        assert only_md["md"].exists()
+        assert not any(sel_proj.exports_dir.glob("*.docx"))
+        assert not any(sel_proj.exports_dir.glob("*.html"))
+        only_html = sel_exp.export_selected(["html"], sync_public=False)
+        assert set(only_html.keys()) == {"html"} and only_html["html"].exists()
+        try:
+            sel_exp.export_selected(["pdf"], sync_public=False)
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+
     from core.image_gen import normalize_to_jpeg_bytes
     from agents.exporter import ensure_local_reader_server, get_local_reader_url, open_file_in_viewer
     try:

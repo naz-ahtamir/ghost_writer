@@ -401,6 +401,30 @@ class NovelExporter:
         sync_project_to_public_downloads(self.project)
         return md_path, docx_path
 
+    def export_selected(self, formats: List[str], sync_public: bool = True) -> Dict[str, Path]:
+        """Export only the chosen formats ('md', 'docx', 'html'); returns {format: file_path}."""
+        wanted = []
+        for fmt in formats:
+            key = fmt.strip().lower().lstrip(".")
+            if key in ("md", "docx", "html") and key not in wanted:
+                wanted.append(key)
+        if not wanted:
+            raise ValueError("Pilih minimal satu format: md, docx, atau html.")
+
+        for ch_num in self.get_exportable_chapters():
+            self.ensure_chapter_illustrations_rendered(ch_num)
+
+        results: Dict[str, Path] = {}
+        if "md" in wanted:
+            results["md"] = self.export_markdown()
+        if "docx" in wanted:
+            results["docx"] = self.export_docx()
+        if "html" in wanted:
+            results["html"] = self.export_html()
+        if sync_public:
+            sync_project_to_public_downloads(self.project)
+        return results
+
     def _get_chapter_markdown_with_illustrations(self, chapter_num: int) -> str:
         """Return chapter markdown with its 3 illustrations embedded at Opening, Middle, and Climax."""
         raw_content = self.project.get_chapter(chapter_num) or ""

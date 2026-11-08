@@ -330,39 +330,57 @@ def export_novel_flow(project: NovelProject) -> None:
         console.print("[red]Belum ada bab yang selesai ditulis untuk diekspor.[/red]")
         return
 
+    console.print("\n[bold cyan]Pilih format ekspor:[/bold cyan]")
+    console.print("  [white]1.[/white] 📘 Word (.docx) saja")
+    console.print("  [white]2.[/white] 📄 Markdown (.md) saja")
+    console.print("  [white]3.[/white] 🌐 HTML Reader (.html) saja")
+    console.print("  [white]4.[/white] 📦 Semua format")
+    fmt_choice = Prompt.ask("Pilih format (1-4)", choices=["1", "2", "3", "4"], default="3")
+    fmt_map = {
+        "1": ["docx"],
+        "2": ["md"],
+        "3": ["html"],
+        "4": ["md", "docx", "html"],
+    }
+    formats = fmt_map[fmt_choice]
+
     exporter = NovelExporter(project)
-    with console.status("[bold cyan]📦 Mengompilasi naskah novel & ilustrasi ke HTML Reader, Markdown, dan Word (.docx)...[/bold cyan]"):
-        md_file, docx_file = exporter.export_all()
-        html_file = exporter.export_html()
+    with console.status(f"[bold cyan]📦 Mengompilasi naskah & ilustrasi ke: {', '.join(formats).upper()}...[/bold cyan]"):
+        results = exporter.export_selected(formats, sync_public=False)
         public_dir = sync_project_to_public_downloads(project)
-        local_url = get_local_reader_url(html_file)
 
     illus_ch_count = len(project.list_illustrated_chapters())
     public_info = (
         f"📲 [bold yellow]Folder Download HP (Bisa dibuka di File Manager/Galeri):[/bold yellow]\n"
         f"   [bold green]{public_dir}[/bold green]\n\n"
         if public_dir
-        else "[dim yellow]💡 Tips Termux: Di dalam halaman Web Reader sudah tersedia tombol 'Download Word (.docx)' & 'Simpan Gambar (.jpg)' langsung lewat Chrome![/dim yellow]\n\n"
+        else ""
+    )
+
+    labels = {"docx": "📘 File Word (DOCX)", "md": "📄 File Markdown (MD)", "html": "🌐 File HTML Reader"}
+    file_lines = "".join(
+        f"{labels[k]}: [dim]{results[k].name}[/dim]\n" for k in ("docx", "md", "html") if k in results
+    )
+    local_url = get_local_reader_url(results["html"]) if "html" in results else ""
+    link_info = (
+        f"🌐 [bold]Link Baca di Browser:[/bold]\n   [bold cyan]{local_url}[/bold cyan]\n\n" if local_url else ""
     )
 
     console.print(Panel(
-        f"[bold green]✓ Novel beserta ilustrasinya berhasil diekspor![/bold green]\n\n"
-        f"🌐 [bold]Link Baca & Download di Browser (Anti-Blokir Termux):[/bold]\n"
-        f"   [bold cyan]{local_url}[/bold cyan]\n\n"
+        f"[bold green]✓ Novel berhasil diekspor![/bold green]\n\n"
+        f"{link_info}"
         f"{public_info}"
-        f"📘 [bold]File Word (DOCX):[/bold] [dim]{docx_file.name}[/dim]\n"
-        f"📄 [bold]File Markdown (MD):[/bold] [dim]{md_file.name}[/dim]\n"
+        f"{file_lines}"
         f"[dim]Total bab yang diekspor: {len(drafted)} bab ({illus_ch_count} bab memiliki ilustrasi).[/dim]",
         title="🎉 Ekspor Berhasil",
         border_style="green",
     ))
 
-    if Confirm.ask(f"[bold yellow]🌐 Buka E-Book Web Visual ({local_url}) di Browser sekarang?[/bold yellow]", default=True):
-        opened_url = open_file_in_viewer(html_file)
-        console.print(
-            f"[bold green]✓ Membuka E-Book Visual di Browser:[/bold green] [bold cyan]{opened_url}[/bold cyan]\n"
-            f"[dim](Jika browser belum terbuka otomatis, cukup ketuk/salin link {opened_url} di atas ke Chrome HP Anda — dari sana Anda juga bisa klik tombol Download .docx & .jpg!)[/dim]"
-        )
+    # Offer to open the first exported file (HTML preferred)
+    open_target = results.get("html") or results.get("docx") or results.get("md")
+    if open_target and Confirm.ask(f"[bold yellow]Buka {open_target.name} sekarang?[/bold yellow]", default=True):
+        opened = open_file_in_viewer(open_target)
+        console.print(f"[bold green]✓ Membuka:[/bold green] [bold cyan]{opened}[/bold cyan]")
 
 
 def check_api_key_prompt(llm: LLMClient) -> None:
