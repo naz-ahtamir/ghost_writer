@@ -37,7 +37,8 @@ if ENV_PATH.exists():
 else:
     load_dotenv()
 
-# Supported Providers: "grok" (Prioritized) or "gemini"
+# Supported Providers: "grok", "openrouter", or "gemini"
+SUPPORTED_PROVIDERS = ("grok", "openrouter", "gemini")
 DEFAULT_PROVIDER = os.getenv("AI_PROVIDER", "grok").lower()
 
 GROK_MODELS = [
@@ -53,6 +54,13 @@ DEFAULT_GROK_REASONING_EFFORT = os.getenv("GROK_REASONING_EFFORT", "low").strip(
 GROK_TOKEN_CONTEXT_LIMIT = int(os.getenv("GROK_TOKEN_CONTEXT_LIMIT", "200000"))
 GROK_TOKEN_WARN_THRESHOLD = int(os.getenv("GROK_TOKEN_WARN_THRESHOLD", "160000"))
 
+OPENROUTER_MODELS = [
+    "nousresearch/hermes-4-70b",
+    "nousresearch/hermes-3-llama-3.1-70b",
+    "nousresearch/hermes-3-llama-3.1-405b",
+]
+DEFAULT_OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nousresearch/hermes-4-70b")
+
 GEMINI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -66,8 +74,12 @@ GEMINI_MODELS = [
 DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Fallback alias for backward compatibility
-DEFAULT_MODELS = GROK_MODELS if DEFAULT_PROVIDER == "grok" else GEMINI_MODELS
-DEFAULT_MODEL = DEFAULT_GROK_MODEL if DEFAULT_PROVIDER == "grok" else DEFAULT_GEMINI_MODEL
+_PROVIDER_MODEL_MAP = {
+    "grok": (GROK_MODELS, DEFAULT_GROK_MODEL),
+    "openrouter": (OPENROUTER_MODELS, DEFAULT_OPENROUTER_MODEL),
+    "gemini": (GEMINI_MODELS, DEFAULT_GEMINI_MODEL),
+}
+DEFAULT_MODELS, DEFAULT_MODEL = _PROVIDER_MODEL_MAP.get(DEFAULT_PROVIDER, (GROK_MODELS, DEFAULT_GROK_MODEL))
 
 DEFAULT_LANGUAGE = os.getenv("NOVEL_DEFAULT_LANGUAGE", "Indonesian")
 
@@ -136,9 +148,9 @@ def get_sd_api_url() -> str:
 
 
 def get_provider() -> str:
-    """Retrieve current AI provider (grok or gemini)."""
+    """Retrieve current AI provider (grok, openrouter, or gemini)."""
     p = os.getenv("AI_PROVIDER", "grok").strip().lower()
-    return "gemini" if p == "gemini" else "grok"
+    return p if p in SUPPORTED_PROVIDERS else "grok"
 
 
 def get_api_key(provider: str = None) -> str:
@@ -146,13 +158,15 @@ def get_api_key(provider: str = None) -> str:
     prov = (provider or get_provider()).lower()
     if prov == "grok":
         return (os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY", "")).strip()
+    if prov == "openrouter":
+        return os.getenv("OPENROUTER_API_KEY", "").strip()
     return os.getenv("GEMINI_API_KEY", "").strip()
 
 
 def get_models_for_provider(provider: str = None) -> list:
     """List available model identifiers for the provider."""
     prov = (provider or get_provider()).lower()
-    return GROK_MODELS if prov == "grok" else GEMINI_MODELS
+    return _PROVIDER_MODEL_MAP.get(prov, (GEMINI_MODELS, DEFAULT_GEMINI_MODEL))[0]
 
 
 def get_active_model(provider: str = None) -> str:
@@ -160,6 +174,8 @@ def get_active_model(provider: str = None) -> str:
     prov = (provider or get_provider()).lower()
     if prov == "grok":
         return os.getenv("GROK_MODEL", DEFAULT_GROK_MODEL).strip()
+    if prov == "openrouter":
+        return os.getenv("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL).strip()
     return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
 
 
@@ -185,6 +201,8 @@ def save_settings(
     grok_key = api_key if provider == "grok" else get_api_key("grok")
     grok_model = model if provider == "grok" else get_active_model("grok")
     effort = (grok_reasoning_effort or get_grok_reasoning_effort()).strip().lower()
+    openrouter_key = api_key if provider == "openrouter" else get_api_key("openrouter")
+    openrouter_model = model if provider == "openrouter" else get_active_model("openrouter")
     gemini_key = api_key if provider == "gemini" else get_api_key("gemini")
     gemini_model = model if provider == "gemini" else get_active_model("gemini")
     img_prov = get_image_provider()
@@ -196,6 +214,8 @@ def save_settings(
         f"GROK_API_KEY={grok_key}",
         f"GROK_MODEL={grok_model}",
         f"GROK_REASONING_EFFORT={effort}",
+        f"OPENROUTER_API_KEY={openrouter_key}",
+        f"OPENROUTER_MODEL={openrouter_model}",
         f"GEMINI_API_KEY={gemini_key}",
         f"GEMINI_MODEL={gemini_model}",
         f"NOVEL_DEFAULT_LANGUAGE={language}",
@@ -211,6 +231,8 @@ def save_settings(
     os.environ["GROK_API_KEY"] = grok_key
     os.environ["GROK_MODEL"] = grok_model
     os.environ["GROK_REASONING_EFFORT"] = effort
+    os.environ["OPENROUTER_API_KEY"] = openrouter_key
+    os.environ["OPENROUTER_MODEL"] = openrouter_model
     os.environ["GEMINI_API_KEY"] = gemini_key
     os.environ["GEMINI_MODEL"] = gemini_model
     os.environ["NOVEL_DEFAULT_LANGUAGE"] = language

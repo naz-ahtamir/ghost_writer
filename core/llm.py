@@ -147,7 +147,7 @@ REFUSAL_PREFIXES = (
 
 
 class LLMClient:
-    """Unified client supporting xAI Grok (Prioritized) and Google Gemini."""
+    """Unified client supporting xAI Grok, OpenRouter (Hermes 4/3), and Google Gemini."""
 
     def __init__(
         self,
@@ -255,9 +255,12 @@ class LLMClient:
             "gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.7-flash", "grok-4.7", "grok-4"
         }
         if self.model in invalid_legacy:
-            self.model = (
-                config.DEFAULT_GROK_MODEL if self.provider == "grok" else config.DEFAULT_GEMINI_MODEL
-            )
+            if self.provider == "grok":
+                self.model = config.DEFAULT_GROK_MODEL
+            elif self.provider == "openrouter":
+                self.model = config.DEFAULT_OPENROUTER_MODEL
+            else:
+                self.model = config.DEFAULT_GEMINI_MODEL
 
         if not self.api_key:
             self._client = None
@@ -274,6 +277,11 @@ class LLMClient:
                 self.available_models = list(config.GROK_MODELS)
                 if self.model not in self.available_models:
                     self.model = self.available_models[0]
+        elif self.provider == "openrouter":
+            self._client = "openrouter_rest"
+            self.available_models = list(config.OPENROUTER_MODELS)
+            if not self.model:
+                self.model = self.available_models[0]
         else:
             self._client = "rest"
             live = fetch_available_gemini_models(self.api_key)
@@ -331,13 +339,19 @@ class LLMClient:
         """Execute a single generation request with telemetry, cache routing, and reasoning control."""
         ctx = _create_ssl_context()
 
-        if self.provider == "grok" or self._client == "grok_rest":
-            url = "https://api.x.ai/v1/chat/completions"
+        if self.provider in ("grok", "openrouter") or self._client in ("grok_rest", "openrouter_rest"):
+            is_grok = self.provider == "grok" or self._client == "grok_rest"
+            provider_label = "xAI Grok" if is_grok else "OpenRouter"
+            url = (
+                "https://api.x.ai/v1/chat/completions"
+                if is_grok
+                else "https://openrouter.ai/api/v1/chat/completions"
+            )
 
             # 1. Check prompt length and auto-prune if approaching the 200k boundary
             active_prompt = prompt
             if len(active_prompt) > 400000:
-                safe_log("[xAI Grok Token] ⚠️ Teks prompt sangat besar (>400k karakter), memangkas bagian tengah teks...")
+                safe_log(f"[{provider_label} Token] ⚠️ Teks prompt sangat besar (>400k karakter), memangkas bagian tengah teks...")
                 active_prompt = self.prune_context(active_prompt, max_chars=360000)
 
             # 2. Build messages list (preserving reasoning_content on assistant messages for cache affinity)
@@ -345,7 +359,7 @@ class LLMClient:
                 chat_messages = []
                 for m in messages:
                     cm = {"role": m.get("role", "user"), "content": m.get("content", "")}
-                    if cm["role"] == "assistant" and m.get("reasoning_content"):
+                    if is_grok and cm["role"] == "assistant" and m.get("reasoning_content"):
                         cm["reasoning_content"] = m["reasoning_content"]
                     chat_messages.append(cm)
             else:
@@ -354,8 +368,7 @@ class LLMClient:
                     chat_messages.append({"role": "system", "content": system_instruction})
                 chat_messages.append({"role": "user", "content": active_prompt})
 
-            # 3. Determine reasoning effort
-            # If context was near 200k or user configured, set low effort to reduce output reasoning tokens
+            # 3. Determine reasoning effort (xAI Grok only)
             configured_effort = config.get_grok_reasoning_effort()
             effective_effort = (
                 "low" if self.context_near_limit else (reasoning_effort or configured_effort)
@@ -369,7 +382,7 @@ class LLMClient:
             if is_json:
                 payload["response_format"] = {"type": "json_object"}
 
-            include_reasoning = effective_effort in ("low", "medium", "high", "xhigh")
+            include_reasoning = is_grok and effective_effort in ("low", "medium", "high", "xhigh")
             if include_reasoning:
                 payload["reasoning_effort"] = effective_effort
                 payload["reasoning"] = {"effort": effective_effort}
@@ -378,8 +391,12 @@ class LLMClient:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
                 "Connection": "close",
-                "x-grok-conv-id": self.conversation_id,
             }
+            if is_grok:
+                headers["x-grok-conv-id"] = self.conversation_id
+            else:
+                headers["HTTP-Referer"] = "https://github.com/naz-ahtamir/ghost_writer"
+                headers["X-Title"] = "GhostWriter AI"
 
             resp_data = None
             try:
@@ -389,22 +406,29 @@ class LLMClient:
                     resp_data = json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="replace")
-                # Fallback: if legacy model rejects reasoning parameters with 400 Bad Request, retry without reasoning
+                # Fallback: retry without reasoning (Grok) or response_format (OpenRouter) if 400 Bad Request
+                retried = False
                 if e.code == 400 and include_reasoning and any(term in err_body.lower() for term in ("reasoning", "unexpected property", "invalid parameter")):
                     payload.pop("reasoning_effort", None)
                     payload.pop("reasoning", None)
+                    retried = True
+                elif e.code == 400 and is_json and "response_format" in payload and any(term in err_body.lower() for term in ("response_format", "json_object", "unsupported")):
+                    payload.pop("response_format", None)
+                    retried = True
+
+                if retried:
                     data = json.dumps(payload).encode("utf-8")
                     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
                     try:
                         with urllib.request.urlopen(req, timeout=120, context=ctx) as retry_resp:
                             resp_data = json.loads(retry_resp.read().decode("utf-8"))
                     except Exception as retry_err:
-                        raise RuntimeError(f"xAI Grok API Error ({e.code}): {err_body} (Retry tanpa reasoning: {retry_err})")
+                        raise RuntimeError(f"{provider_label} API Error ({e.code}): {err_body} (Retry: {retry_err})")
                 else:
-                    raise RuntimeError(f"xAI Grok API Error ({e.code}): {err_body}")
+                    raise RuntimeError(f"{provider_label} API Error ({e.code}): {err_body}")
 
             if not resp_data:
-                raise RuntimeError("Respons dari Grok kosong.")
+                raise RuntimeError(f"Respons dari {provider_label} kosong.")
 
             # 4. Extract token usage, cache metrics, and reasoning details
             usage = resp_data.get("usage", {})
@@ -427,36 +451,37 @@ class LLMClient:
             # Telemetry logging
             effort_tag = effective_effort if include_reasoning else "none"
             log_line = (
-                f"[xAI Grok Token] Prompt: {prompt_tokens:,} "
+                f"[{provider_label} Token] Prompt: {prompt_tokens:,} "
                 f"(Cached: {cached_tokens:,} | {cache_pct:.1f}%) | "
                 f"Output: {completion_tokens:,} (Reasoning: {reasoning_tokens:,} [{effort_tag}]) | "
                 f"Total: {total_tokens:,}"
             )
             safe_log(log_line)
 
-            # Token boundary alerts (200k check)
-            if prompt_tokens >= config.GROK_TOKEN_CONTEXT_LIMIT:
-                self.context_near_limit = True
-                safe_log(
-                    f"[xAI Grok Token Warning] 🚨 PERINGATAN: prompt_tokens ({prompt_tokens:,}) MELEWATI batas 200k! "
-                    f"Sistem mengaktifkan pemangkasan riwayat konteks & memaksa reasoning_effort='low'."
-                )
-            elif prompt_tokens >= config.GROK_TOKEN_WARN_THRESHOLD:
-                self.context_near_limit = True
-                safe_log(
-                    f"[xAI Grok Token Warning] ⚠️ prompt_tokens ({prompt_tokens:,}) mendekati batas 200k. "
-                    f"Mengaktifkan reasoning_effort='low' untuk memangkas output tokens."
-                )
-            else:
-                self.context_near_limit = False
+            if is_grok:
+                # Token boundary alerts (200k check)
+                if prompt_tokens >= config.GROK_TOKEN_CONTEXT_LIMIT:
+                    self.context_near_limit = True
+                    safe_log(
+                        f"[xAI Grok Token Warning] 🚨 PERINGATAN: prompt_tokens ({prompt_tokens:,}) MELEWATI batas 200k! "
+                        f"Sistem mengaktifkan pemangkasan riwayat konteks & memaksa reasoning_effort='low'."
+                    )
+                elif prompt_tokens >= config.GROK_TOKEN_WARN_THRESHOLD:
+                    self.context_near_limit = True
+                    safe_log(
+                        f"[xAI Grok Token Warning] ⚠️ prompt_tokens ({prompt_tokens:,}) mendekati batas 200k. "
+                        f"Mengaktifkan reasoning_effort='low' untuk memangkas output tokens."
+                    )
+                else:
+                    self.context_near_limit = False
 
-            # Cache hit target alert
-            if prompt_tokens > 1000 and cached_tokens == 0:
-                safe_log(
-                    f"[xAI Grok Cache] 💡 Cache miss (0 cached tokens). "
-                    f"Pastikan header 'x-grok-conv-id' konsisten ('{self.conversation_id}') "
-                    f"dan kirimkan kembali 'reasoning_content' jika ada riwayat percakapan."
-                )
+                # Cache hit target alert
+                if prompt_tokens > 1000 and cached_tokens == 0:
+                    safe_log(
+                        f"[xAI Grok Cache] 💡 Cache miss (0 cached tokens). "
+                        f"Pastikan header 'x-grok-conv-id' konsisten ('{self.conversation_id}') "
+                        f"dan kirimkan kembali 'reasoning_content' jika ada riwayat percakapan."
+                    )
 
             # Update usage state
             self.last_usage = {
@@ -467,7 +492,7 @@ class LLMClient:
                 "reasoning_tokens": reasoning_tokens,
                 "cache_hit_rate": cache_pct,
                 "reasoning_effort": effort_tag,
-                "conversation_id": self.conversation_id,
+                "conversation_id": self.conversation_id if is_grok else "openrouter",
                 "timestamp": time.time(),
             }
             self.cumulative_usage["prompt_tokens"] += prompt_tokens
@@ -487,7 +512,7 @@ class LLMClient:
                     raise RuntimeError(f"Model menolak respons: {content[:120]}")
                 return content
 
-            raise RuntimeError("Respons dari Grok kosong.")
+            raise RuntimeError(f"Respons dari {provider_label} kosong.")
 
         else:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
@@ -623,7 +648,12 @@ class LLMClient:
         messages: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Generate text using active provider with automatic retry, reasoning effort control, and model fallback."""
-        prov_label = "xAI Grok" if self.provider == "grok" else "Google Gemini"
+        prov_labels = {
+            "grok": "xAI Grok",
+            "openrouter": "OpenRouter (Hermes)",
+            "gemini": "Google Gemini",
+        }
+        prov_label = prov_labels.get(self.provider, "Google Gemini")
         if not self.is_configured():
             raise ValueError(
                 f"{prov_label} API Key belum diset! Silakan masukkan API Key Anda di menu Pengaturan atau file .env."
@@ -678,7 +708,13 @@ class LLMClient:
                                 f"xAI Grok API Key tidak valid atau akun belum memiliki saldo kredit aktif.\n"
                                 f"Pesan dari xAI: {e}\n"
                                 f"💡 Tips: API key Grok harus dibuat di https://console.x.ai dan membutuhkan saldo kredit (bukan langganan X Premium biasa).\n"
-                                f"Jika ingin menggunakan AI gratis, silakan beralih kembali ke Google Gemini di Menu 8."
+                                f"Jika ingin menggunakan AI lain, silakan beralih ke OpenRouter atau Google Gemini di Menu 8."
+                            )
+                        elif self.provider == "openrouter":
+                            raise ValueError(
+                                f"OpenRouter API Key tidak valid atau saldo kredit habis.\n"
+                                f"Pesan dari OpenRouter: {e}\n"
+                                f"💡 Tips: Periksa API key & kredit Anda di https://openrouter.ai/keys"
                             )
                         else:
                             raise ValueError(f"Google Gemini API Key tidak valid atau tidak memiliki akses: {e}")

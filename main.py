@@ -34,12 +34,21 @@ from agents.exporter import (
 )
 
 
+def _get_provider_display_name(provider: str) -> str:
+    """Return human-readable label for AI provider."""
+    return {
+        "grok": "xAI Grok",
+        "openrouter": "OpenRouter (Hermes 4/3)",
+        "gemini": "Google Gemini",
+    }.get(provider.lower(), provider)
+
+
 def manage_settings(llm: LLMClient) -> None:
     """Configure AI provider, API key, and model."""
-    print_header("⚙️ Pengaturan AI Engine & Model", "Konfigurasi xAI Grok / Google Gemini")
+    print_header("⚙️ Pengaturan AI Engine & Model", "Konfigurasi xAI Grok / OpenRouter (Hermes) / Google Gemini")
 
     prov = llm.provider
-    prov_name = "xAI Grok (Prioritas)" if prov == "grok" else "Google Gemini"
+    prov_name = _get_provider_display_name(prov)
     curr_key = llm.api_key or "[Belum Diisi]"
     img_prov = config.get_image_provider()
     img_model = config.get_image_model(img_prov)
@@ -66,7 +75,7 @@ def manage_settings(llm: LLMClient) -> None:
         )
 
     console.print("\n[bold cyan]Opsi Pengaturan:[/bold cyan]")
-    console.print("  [white]1.[/white] Ganti Provider AI Teks (xAI Grok / Google Gemini)")
+    console.print("  [white]1.[/white] Ganti Provider AI Teks (xAI Grok / OpenRouter Hermes / Google Gemini)")
     console.print("  [white]2.[/white] Masukkan / Ubah API Key")
     console.print("  [white]3.[/white] Ganti Model AI Teks")
     console.print("  [white]4.[/white] Ganti Engine & Model Ilustrasi Gambar (Flux Realism Uncensored / Grok / Gemini / Local SD)")
@@ -76,18 +85,28 @@ def manage_settings(llm: LLMClient) -> None:
 
     opt = Prompt.ask("\nPilih opsi", choices=["1", "2", "3", "4", "5", "6", "7"], default="7")
     if opt == "1":
-        new_prov = "gemini" if prov == "grok" else "grok"
-        new_name = "Google Gemini" if new_prov == "gemini" else "xAI Grok"
-        if Confirm.ask(f"Beralih ke provider [bold cyan]{new_name}[/bold cyan]?", default=True):
-            new_key = config.get_api_key(new_prov)
-            new_model = config.get_active_model(new_prov)
-            config.save_settings(provider=new_prov, api_key=new_key, model=new_model)
-            llm.set_provider(new_prov, api_key=new_key, model=new_model)
-            console.print(f"[bold green]✓ Provider berhasil diubah ke {new_name}![/bold green]")
+        console.print("\n[bold cyan]Pilih Provider AI Teks:[/bold cyan]")
+        console.print("  [white]1.[/white] [bold cyan]xAI Grok[/bold cyan] (grok-3 / grok-2)")
+        console.print("  [white]2.[/white] [bold green]OpenRouter (Nous Hermes 4 / Hermes 3)[/bold green] (Sangat patuh & minim sensor)")
+        console.print("  [white]3.[/white] [bold blue]Google Gemini[/bold blue] (Gratis via Google AI Studio)")
+        prov_choice = Prompt.ask("Pilih provider (1-3)", choices=["1", "2", "3"], default="2")
+        new_prov = {"1": "grok", "2": "openrouter", "3": "gemini"}[prov_choice]
+        new_name = _get_provider_display_name(new_prov)
+        new_key = config.get_api_key(new_prov)
+        new_model = config.get_active_model(new_prov)
+        config.save_settings(provider=new_prov, api_key=new_key, model=new_model)
+        llm.set_provider(new_prov, api_key=new_key, model=new_model)
+        console.print(f"[bold green]✓ Provider berhasil diubah ke {new_name} ({new_model})![/bold green]")
+        if not new_key:
+            console.print("[yellow]⚠️ API Key untuk provider ini belum diisi. Silakan pilih opsi 2 untuk memasukkannya.[/yellow]")
 
     elif opt == "2":
-        prov_label = "xAI (Grok)" if llm.provider == "grok" else "Google Gemini"
-        url_help = "https://console.x.ai" if llm.provider == "grok" else "https://aistudio.google.com/app/apikey"
+        prov_meta = {
+            "grok": ("xAI (Grok)", "https://console.x.ai"),
+            "openrouter": ("OpenRouter", "https://openrouter.ai/keys"),
+            "gemini": ("Google Gemini", "https://aistudio.google.com/app/apikey"),
+        }
+        prov_label, url_help = prov_meta.get(llm.provider, ("AI", ""))
         console.print(f"[dim]Dapatkan key di: {url_help}[/dim]")
         new_key = Prompt.ask(f"[bold cyan]Masukkan {prov_label} API Key baru[/bold cyan]")
         if new_key.strip():
@@ -389,23 +408,44 @@ def check_api_key_prompt(llm: LLMClient) -> None:
         if llm.provider == "grok":
             console.print(Panel(
                 "[bold yellow]⚠️ xAI (Grok) API Key Belum Ditemukan![/bold yellow]\n\n"
-                "GhostWriter diprioritaskan menggunakan engine [bold cyan]xAI Grok[/bold cyan] untuk sastra dan prosa terbaik.\n"
                 "Dapatkan xAI API Key di: [cyan]https://console.x.ai[/cyan]\n\n"
-                "[dim]💡 Jika ingin beralih ke Google Gemini (Gratis), ketik 'gemini' di bawah.[/dim]",
+                "[dim]💡 Ketik 'openrouter' untuk memakai Hermes 4/3, atau 'gemini' untuk Google Gemini.[/dim]",
                 title="🔑 Konfigurasi AI Engine (Grok)",
                 border_style="yellow",
             ))
-            key = Prompt.ask("[bold cyan]Masukkan xAI (Grok) API Key (atau 'gemini' untuk ganti provider)[/bold cyan]", default="")
-            if key.strip().lower() == "gemini":
-                llm.set_provider("gemini")
-                gemini_key = config.get_api_key("gemini")
-                config.save_settings(provider="gemini", api_key=gemini_key, model=llm.model)
+            key = Prompt.ask("[bold cyan]Masukkan xAI (Grok) API Key (atau 'openrouter' / 'gemini')[/bold cyan]", default="")
+            choice = key.strip().lower()
+            if choice in ("openrouter", "gemini"):
+                llm.set_provider(choice)
+                alt_key = config.get_api_key(choice)
+                config.save_settings(provider=choice, api_key=alt_key, model=llm.model)
                 check_api_key_prompt(llm)
                 return
             elif key.strip():
                 config.save_settings(provider="grok", api_key=key.strip(), model=llm.model)
                 llm.set_api_key(key.strip())
                 console.print("[bold green]✓ xAI Grok API Key berhasil disimpan![/bold green]\n")
+        elif llm.provider == "openrouter":
+            console.print(Panel(
+                "[bold yellow]⚠️ OpenRouter API Key Belum Ditemukan![/bold yellow]\n\n"
+                "OpenRouter digunakan untuk menjalankan [bold green]nousresearch/hermes-4-70b[/bold green] & [bold green]hermes-3-llama-3.1-70b[/bold green].\n"
+                "Dapatkan OpenRouter API Key di: [cyan]https://openrouter.ai/keys[/cyan]\n\n"
+                "[dim]💡 Ketik 'grok' atau 'gemini' jika ingin beralih provider.[/dim]",
+                title="🔑 Konfigurasi AI Engine (OpenRouter)",
+                border_style="yellow",
+            ))
+            key = Prompt.ask("[bold cyan]Masukkan OpenRouter API Key (atau tekan Enter untuk lewati)[/bold cyan]", default="")
+            choice = key.strip().lower()
+            if choice in ("grok", "gemini"):
+                llm.set_provider(choice)
+                alt_key = config.get_api_key(choice)
+                config.save_settings(provider=choice, api_key=alt_key, model=llm.model)
+                check_api_key_prompt(llm)
+                return
+            elif key.strip():
+                config.save_settings(provider="openrouter", api_key=key.strip(), model=llm.model)
+                llm.set_api_key(key.strip())
+                console.print("[bold green]✓ OpenRouter API Key berhasil disimpan![/bold green]\n")
         else:
             console.print(Panel(
                 "[bold yellow]⚠️ Google Gemini API Key Belum Ditemukan![/bold yellow]\n\n"
@@ -437,7 +477,7 @@ def main() -> None:
 
     while True:
         # Display active AI engine
-        prov_label = "xAI Grok (Prioritas)" if llm.provider == "grok" else "Google Gemini"
+        prov_label = _get_provider_display_name(llm.provider)
         console.print(f"[bold blue]🤖 AI Engine:[/bold blue] [bold cyan]{prov_label}[/bold cyan] [dim]({llm.model})[/dim]")
 
         # Display current project status bar

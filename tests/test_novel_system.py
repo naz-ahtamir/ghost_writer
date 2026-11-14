@@ -307,6 +307,14 @@ def test_grok_and_gemini_provider_switching():
     assert client.is_configured() is True
     assert client._client == "grok_rest"
 
+    # Test switching to OpenRouter (Hermes 4 / Hermes 3)
+    client.set_provider("openrouter", api_key="sk-or-test-key")
+    assert client.provider == "openrouter"
+    assert client.model == "nousresearch/hermes-4-70b"
+    assert "nousresearch/hermes-3-llama-3.1-70b" in client.available_models
+    assert client.is_configured() is True
+    assert client._client == "openrouter_rest"
+
     # Test switching to Gemini
     client.set_provider("gemini", api_key="fake-gemini-key")
     assert client.provider == "gemini"
