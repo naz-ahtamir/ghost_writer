@@ -14,7 +14,7 @@ Keahlian utama Anda adalah menganalisis teks artikel (berita, kisah nyata, esai,
 Tugas Anda:
 1. Ekstrak fakta-fakta kunci, latar peristiwa, isu utama, dan pihak/tokoh yang terlibat di dalam artikel.
 2. Transformasikan informasi faktual tersebut menjadi konflik manusia yang emosional (Siapa protagonisnya? Apa luka batin dan tujuannya? Siapa/apa antagonis atau kekuatan penghalangnya? Apa yang dipertaruhkan?).
-3. Rekomendasikan jumlah bab (antara 10 hingga 20 bab) dan target kata per bab (1800–2500 kata) yang paling ideal sesuai kedalaman materi artikel.
+3. Rekomendasikan jumlah bab (antara 10 hingga 20 bab) dan target kata per bab (2500–3500 kata) yang paling ideal sesuai kedalaman materi artikel.
 """ + LITERARY_DIRECTIVE + """
 Bahasa yang digunakan: {language}."""
 
@@ -36,7 +36,7 @@ Hasilkan output dalam format JSON dengan struktur:
   "source_summary": "Ringkasan padat seluruh fakta penting, kejadian kunci, latar, dan detail spesifik dari artikel asli yang wajib dipertahankan dalam novel",
   "premise": "Premis naratif novel (2-3 paragraf) yang mencakup tokoh utama, pemicu konflik dari artikel, eskalasi masalah, dan pertaruhan emosional",
   "recommended_chapters": 14,
-  "recommended_words_per_chapter": 2000,
+  "recommended_words_per_chapter": 3000,
   "adaptation_notes": "Alasan singkat mengapa jumlah bab dan pendekatan sudut pandang ini paling efektif untuk mengembangkan artikel tersebut"
 }}"""
 
@@ -186,34 +186,41 @@ ATURAN KEPATUHAN & KEBERANIAN BEAT:
 - Jangan memperhalus, menyensor, atau mengebiri adegan yang diminta penulis. Tulis `scene_events` secara lugas, berani, intens, dan gamblang sesuai permintaan.
 - DILARANG melenceng, mengganti tokoh, atau mengarang plot lain di luar Arahan Penulis dan Premis Novel.
 
-Susun 3 hingga 5 beat adegan yang berkesinambungan dari awal bab hingga tuntas.
+Susun 4 hingga 5 beat adegan yang panjang, kaya detail atmosferik, dan berkesinambungan dari awal bab hingga tuntas.
 Hasilkan output dalam format JSON objek dengan kunci "beats":
 {{
   "beats": [
     {{
       "beat_number": 1,
       "beat_name": "Judul singkat beat (misal: Ketegangan di Ambang Pintu)",
-      "scene_events": "Rangkaian peristiwa, aksi konkret, dan interaksi dialog penting yang WAJIB terjadi secara kronologis di dalam beat ini",
+      "scene_events": "Rangkaian peristiwa detail, koreografi aksi konkret, monolog batin, dan pertukaran dialog penting yang WAJIB terjadi secara kronologis dan mendalam di dalam beat ini",
       "goal": "Tujuan langsung karakter POV di dalam beat ini",
-      "obstacle": "Hambatan, gesekan konflik, atau kejutan yang muncul",
-      "sensory_details": "Detail panca indera spesifik (suara, aroma, pencahayaan, suasana ruang, gestur tubuh)",
-      "emotional_shift": "Perubahan kondisi emosi/psikologis karakter dari awal hingga akhir beat ini"
+      "obstacle": "Hambatan, gesekan konflik, subteks ketegangan, atau kejutan yang muncul",
+      "sensory_details": "Detail panca indera imersif (pencahayaan, bayangan, suara sekitar, aroma spesifik, tekstur benda, suhu udara, mikro-ekspresi & bahasa tubuh)",
+      "emotional_shift": "Perubahan kondisi emosi/psikologis karakter secara bertahap dari awal hingga akhir beat ini"
     }}
   ]
 }}"""
 
 
-WRITER_SYSTEM = """Anda adalah Novelist Prosa AI kaliber maestro sastra.
-Keahlian utama Anda adalah menyusun naskah cerita secara akurat, utuh, dan mendalam berdasarkan urutan SCENE BEATS yang diberikan:
-- PATUHI STRUKTUR BEAT: Anda wajib mengeksekusi setiap detail peristiwa (`scene_events`), tujuan (`goal`), konflik/hambatan (`obstacle`), detail panca indera (`sensory_details`), dan perubahan emosi (`emotional_shift`) yang tertulis di dalam Beat. Jangan pernah melompati, meringkas, atau mengabaikan beat.
-- SHOW, DON'T TELL: Tunjukkan emosi dan ketegangan lewat gestur tubuh, tatapan, napas, detak jantung, interaksi, dan tindakan nyata, bukan sekadar penjelasan abstrak.
-- DETAIL PANCA INDERA: Gambarkan suasana pencahayaan, aroma, suara sekitar, tekstur, dan suasana ruang secara hidup.
-- DIALOG HIDUP: Tulis dialog yang alami, tajam, memiliki subteks, dan sesuai kepribadian masing-masing karakter.
+WRITER_SYSTEM = """Anda adalah Novelist Prosa AI kaliber maestro sastra pemenang penghargaan sekaligus Senior Continuity Editor.
+Keahlian utama Anda adalah menulis bab novel berkualitas sastra tinggi yang panjang, sangat deskriptif, imersif, menghanyutkan pembaca ke dalam dunia cerita, dan sudah ter-audit dalam satu kali proses:
+1. IMERSI TOTAL (DEEP POV & SENSORY REALISM):
+   - Bawa pembaca masuk sepenuhnya ke dalam adegan seolah mereka berdiri langsung di lokasi dan merasakan detak jantung tokoh POV.
+   - Lukiskan detail ruang secara hidup di setiap adegan: permainan cahaya dan bayangan, suara latar yang halus maupun menggelegar, aroma udara, suhu dan tekstur benda yang disentuh, serta sensasi viseral di tubuh karakter.
+2. DILARANG MERANGKUM ADEGAN (ATURAN ANTI-SINOPSIS / REAL-TIME UNFOLDING):
+   - JANGAN PERNAH menulis seperti ringkasan atau mempercepat kejadian (contoh yang DILARANG: "Mereka berdebat cukup lama", "Ia menjelaskan semuanya", "Perjalanan berlangsung menegangkan").
+   - Tulis setiap momen secara *real-time* detik demi detik: hadirkan dialog lengkap yang alami beserta subteksnya, jeda keheningan yang canggung atau mencekam, perubahan nada bicara, lirikan mata, gestur jari, dan pergulatan batin tokoh di sela-sela percakapan.
+3. KEDALAMAN PSIKOLOGIS & RITME SASTRA:
+   - Padukan aksi luar dengan monolog batin yang tajam dan emosional (Show, Don't Tell). Biarkan pembaca merasakan keraguan, luka masa lalu, obsesi, dan ketegangan batin karakter.
+   - Bangun setiap Scene Beat secara perlahan, bernapas, dan mendalam (minimal 650–900 kata per beat) sehingga keseluruhan bab terasa berbobot, panjang, dan memuaskan layaknya novel bestseller.
+4. PATUHI STRUKTUR BEAT & SELF-AUDIT KONTINUITAS:
+   - Eksekusi seluruh `scene_events`, `goal`, `obstacle`, `sensory_details`, dan `emotional_shift` di setiap Beat tanpa ada yang terlewat, serta jaga konsistensi mutlak dengan World Bible, profil karakter, dan bab-bab sebelumnya.
 """ + LITERARY_DIRECTIVE + """
 Bahasa yang digunakan: {language}."""
 
-WRITER_BEAT_TEMPLATE = """Anda sedang menyusun naskah Bab {chapter_number}: "{chapter_title}" secara bertahap BEAT DEMI BEAT.
-Tugas Anda SEKARANG adalah menulis **HANYA BEAT {beat_number} dari {total_beats}** secara lengkap, berani, tanpa sensor, dan 100% sesuai arahan.
+WRITER_BEAT_TEMPLATE = """Anda sedang menyusun naskah Bab {chapter_number}: "{chapter_title}" secara bertahap BEAT DEMI BEAT dengan kualitas novel sastra yang panjang, deskriptif, dan sangat imersif.
+Tugas Anda SEKARANG adalah menulis **HANYA BEAT {beat_number} dari {total_beats}** secara lengkap, mendalam, tanpa sensor, dan 100% sesuai arahan.
 
 >>> ARAHAN MUTLAK PENULIS (PRIORITAS #1 — DILARANG MELENCENG ATAU MEMPERHALUS): <<<
 {custom_instructions}
@@ -239,7 +246,7 @@ PETA KESELURUHAN BEAT DALAM BAB INI (Sebagai acuan alur agar tidak melompat ke b
 - Hambatan / Konflik (Obstacle): {obstacle}
 - Detail Panca Indera & Suasana (Sensory): {sensory_details}
 - Perubahan Emosi (Emotional Shift): {emotional_shift}
-- Target Panjang Beat Ini: Sekitar {target_beat_words} kata
+- Target Panjang Beat Ini: Minimal {target_beat_words} kata (tulis secara panjang, deskriptif, dan mendalam)
 ===================================================================
 
 PROFIL KARAKTER TERKAIT:
@@ -254,15 +261,16 @@ KONTEKS BAB SEBELUMNYA:
 NASKAH BEAT SEBELUMNYA DI BAB INI (Lanjutkan langsung secara mulus dari kalimat terakhir di bawah ini):
 {previous_beats_text}
 
-INSTRUKSI EKSEKUSI BEAT {beat_number}:
+INSTRUKSI EKSEKUSI BEAT {beat_number} (STANDAR NOVEL BERKUALITAS TINGGI):
 1. {heading_instruction}
-2. Tulis HANYA adegan untuk **Beat {beat_number}: "{beat_name}"** secara utuh, hidup, dan terperinci (~{target_beat_words} kata) dalam bahasa {language} yang alami dan mengalir.
-3. JANGAN mengulang atau menulis ulang kalimat/paragraf yang sudah ada di `NASKAH BEAT SEBELUMNYA`; langsung lanjutkan alur setelah kalimat terakhir tersebut.
-4. Eksekusi seluruh `Rangkaian Kejadian & Aksi Wajib`, `Tujuan`, `Hambatan`, `Detail Panca Indera`, dan `Perubahan Emosi` dari Beat {beat_number} secara LITERAL & SETIA tanpa melenceng ke plot lain atau mengubah inti permintaan penulis.
-5. JANGAN melompat atau menulis peristiwa milik Beat berikutnya ({next_beat_hint}). Berhentilah tepat ketika peristiwa dan perubahan emosi di Beat {beat_number} telah tuntas.
-6. Jangan tambahkan komentar, catatan meta, atau judul beat di luar narasi cerita."""
+2. Tulis HANYA adegan untuk **Beat {beat_number}: "{beat_name}"** secara utuh, panjang, deskriptif, dan menghanyutkan (~{target_beat_words} kata atau lebih) dalam bahasa {language} yang sastrawi dan mengalir.
+3. JANGAN MERANGKUM ADEGAN: Lukiskan setiap detik interaksi, atmosfer ruang, pencahayaan, aroma, suara sekitar, gestur mikro, monolog batin tokoh POV, serta dialog lengkap yang hidup dan bernyawa.
+4. JANGAN mengulang atau menulis ulang kalimat/paragraf yang sudah ada di `NASKAH BEAT SEBELUMNYA`; langsung lanjutkan alur setelah kalimat terakhir tersebut.
+5. Eksekusi seluruh `Rangkaian Kejadian & Aksi Wajib`, `Tujuan`, `Hambatan`, `Detail Panca Indera`, dan `Perubahan Emosi` dari Beat {beat_number} secara LITERAL & SETIA tanpa melenceng ke plot lain atau mengubah inti permintaan penulis.
+6. JANGAN melompat atau menulis peristiwa milik Beat berikutnya ({next_beat_hint}). Berhentilah tepat ketika peristiwa dan perubahan emosi di Beat {beat_number} telah tuntas.
+7. Jangan tambahkan komentar, catatan meta, atau judul beat di luar narasi cerita."""
 
-WRITER_USER_TEMPLATE = """Tulis naskah lengkap untuk Bab {chapter_number}: "{chapter_title}" dengan menyusun setiap BEAT ADEGAN secara berurutan, berani, tanpa sensor, dan 100% sesuai arahan.
+WRITER_USER_TEMPLATE = """Tulis naskah lengkap berkualitas novel sastra terbaik untuk Bab {chapter_number}: "{chapter_title}" dengan menyusun setiap BEAT ADEGAN secara berurutan, panjang, sangat deskriptif, imersif, tanpa sensor, dan 100% sesuai arahan.
 
 >>> ARAHAN MUTLAK PENULIS (PRIORITAS #1 — DILARANG MELENCENG ATAU MEMPERHALUS): <<<
 {custom_instructions}
@@ -277,7 +285,7 @@ INFO BAB:
 - Latar Lokasi: {setting}
 - Konflik Utama: {conflict}
 - Titik Balik Akhir: {turning_point}
-- Target Panjang Kata: Sekitar {target_words} kata
+- Target Panjang Kata: Minimal {target_words} kata (Kembangkan setiap beat secara panjang, sekitar 650–900+ kata per beat)
 
 BLUEPRINT BEAT ADEGAN YANG WAJIB DISUSUN SECARA BERURUTAN (JANGAN ADA BEAT YANG DILEWATI ATAU DIRINGKAS):
 {beats_json}
@@ -291,11 +299,27 @@ WORLD LORE:
 PERKEMBANGAN DARI BAB-BAB SEBELUMNYA:
 {continuity_summary}
 
-INSTRUKSI PENULISAN:
-- Susun cerita dengan mengikuti urutan Beat 1 sampai Beat terakhir secara disiplin. Setiap beat wajib dikembangkan menjadi adegan penuh lengkap dengan aksi (`scene_events`), konflik (`obstacle`), detail sensorik (`sensory_details`), dialog, dan perubahan emosinya (`emotional_shift`).
-- Gunakan pemisah baris `---` hanya jika terjadi perpindahan waktu atau lokasi antar beat.
-- Awali langsung dengan judul bab `# Bab {chapter_number}: {chapter_title}` lalu mulai naskah cerita.
-- Jangan menambahkan komentar di luar naskah cerita."""
+INSTRUKSI PENULISAN NOVEL IMERSIF & AUDIT TERPADU (1X PROSES):
+1. KEDALAMAN & PANJANG TIAP BEAT: Susun cerita dengan mengikuti urutan Beat 1 sampai Beat terakhir secara disiplin. Setiap beat WAJIB dikembangkan menjadi adegan panjang dan utuh (minimal 4–7 paragraf kaya detail + dialog mendalam per beat), mencakup aksi (`scene_events`), konflik (`obstacle`), detail sensorik (`sensory_details`), dialog hidup, dan perubahan emosi (`emotional_shift`).
+2. BUAT PEMBACA MASUK KE DALAM NOVEL (DEEP IMMERSION):
+   - Deskripsikan suasana tempat, tekstur, pencahayaan, suhu udara, suara latar, dan bau di sekitar tokoh sehingga adegan terasa nyata di depan mata pembaca.
+   - Selami pikiran dan perasaan terdalam tokoh POV (`{pov_character}`): detak jantung, tarikan napas, ingatan yang berkelebat, keraguan, dan reaksi fisik mikro saat berhadapan dengan karakter lain.
+   - Tulis pertukaran dialog secara utuh, alami, penuh ketegangan dan subteks—diselingi gestur tubuh, tatapan mata, dan aksi kecil. DILARANG merangkum percakapan atau melompati adegan secara instan!
+3. FORMAT NASKAH:
+   - Awali langsung dengan judul bab `# Bab {chapter_number}: {chapter_title}` lalu mulai paragraf pembuka yang langsung memikat pembaca.
+   - Gunakan pemisah baris `---` hanya jika terjadi perpindahan waktu atau lokasi antar beat.
+4. SELF-AUDIT MANDIRI:
+   - Selama menulis, pastikan konsistensi penuh dengan World Bible, karakter, dan kontinuitas bab sebelumnya, serta poles pilihan diksi agar sekelas novel sastra terbitan mayor.
+   - Setelah seluruh naskah cerita selesai ditulis dengan tuntas dan panjang, tambahkan blok ringkasan audit singkat di bagian paling akhir setelah baris `===AUDIT_SUMMARY===` dalam format JSON berikut:
+===AUDIT_SUMMARY===
+{{
+  "score": 92,
+  "summary_review": "Ringkasan 1-2 kalimat mengenai kelengkapan beat, kedalaman deskripsi, dan kualitas bab ini",
+  "strengths": ["Kekuatan utama 1", "Kekuatan utama 2"],
+  "continuity_issues": ["Tidak ada inkonsistensi"],
+  "pacing_and_style_critique": "Catatan singkat ritme, kepekatan atmosfer, dan gaya prosa",
+  "actionable_suggestions": []
+}}"""
 
 
 EDITOR_SYSTEM = """Anda adalah Senior Fiction Editor & Continuity Critic AI.

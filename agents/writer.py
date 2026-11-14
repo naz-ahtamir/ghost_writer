@@ -13,15 +13,36 @@ class WriterAgent:
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
+        self.last_audit: Optional[Dict[str, Any]] = None
 
     @staticmethod
-    def format_beats_blueprint(beats: List[Dict[str, Any]], target_words: int = 2000) -> str:
+    def _extract_prose_and_audit(raw_output: str) -> tuple[str, Optional[Dict[str, Any]]]:
+        """Split integrated prose and optional ===AUDIT_SUMMARY=== JSON block."""
+        if not raw_output:
+            return "", None
+
+        parts = re.split(r"\n*===\s*AUDIT_SUMMARY\s*===\s*\n*", raw_output, maxsplit=1, flags=re.IGNORECASE)
+        prose = parts[0].strip()
+        if len(parts) < 2 or not parts[1].strip():
+            return prose, None
+
+        audit_raw = parts[1].strip()
+        try:
+            parsed = LLMClient.extract_json(audit_raw)
+            if isinstance(parsed, dict):
+                return prose, parsed
+        except Exception:
+            pass
+        return prose, None
+
+    @staticmethod
+    def format_beats_blueprint(beats: List[Dict[str, Any]], target_words: int = 3000) -> str:
         """Format beats list into a clear, sequential narrative blueprint for the LLM."""
         if not beats:
             return "Belum ada beat spesifik. Susun alur bab dari pembuka, eskalasi konflik, hingga titik balik."
 
         total = len(beats)
-        words_per_beat = max(350, int(target_words / max(1, total)))
+        words_per_beat = max(650, int(target_words / max(1, total)))
         lines: List[str] = []
         for idx, b in enumerate(beats, 1):
             num = b.get("beat_number", idx)
@@ -91,26 +112,30 @@ class WriterAgent:
         chapter_info: Dict[str, Any],
         beats: List[Dict[str, Any]],
         custom_instructions: str = "",
-        beat_by_beat: bool = True,
+        beat_by_beat: bool = False,
         progress_callback: Optional[Callable[[int, int, Dict[str, Any]], None]] = None,
     ) -> str:
-        """Draft prose for the specified chapter strictly based on beats and world lore."""
+        """Draft prose for the specified chapter with integrated continuity & style self-audit."""
+        self.last_audit = None
         chap_num = chapter_info.get("chapter_number", 1)
         chap_title = chapter_info.get("title", f"Bab {chap_num}")
         meta = project.metadata
         lang = meta.get("language", "Indonesian")
-        target_words = int(meta.get("target_words_per_chapter", 2000))
+        target_words = max(2500, int(meta.get("target_words_per_chapter", 3000)))
 
         normalized_beats = ScenePlannerAgent.normalize_beats(beats, chapter_info=chapter_info)
         characters_context, world_context = self._build_contexts(project)
         continuity_summary = project.get_continuity_summary(up_to_chapter=chap_num)
         beats_blueprint = self.format_beats_blueprint(normalized_beats, target_words=target_words)
         system_prompt = WRITER_SYSTEM.format(language=lang)
-        user_notes = custom_instructions.strip() or "Tulis secara utuh, mendalam, ekspresif, dan tanpa sensor sesuai tiap beat."
+        user_notes = (
+            custom_instructions.strip()
+            or "Tulis secara panjang, deskriptif, imersif, kaya detail panca indera & monolog batin, dialog hidup (jangan dirangkum), dan tanpa sensor sesuai tiap beat."
+        )
 
         if beat_by_beat and len(normalized_beats) > 1:
             total_beats = len(normalized_beats)
-            words_per_beat = max(400, int(target_words / total_beats))
+            words_per_beat = max(650, int(target_words / total_beats))
             accumulated_parts: List[str] = []
 
             for idx, beat in enumerate(normalized_beats, 1):
@@ -216,11 +241,18 @@ class WriterAgent:
             continuity_summary=continuity_summary,
         )
 
-        chapter_prose = self.llm.generate(
+        raw_output = self.llm.generate(
             prompt=user_prompt,
             system_instruction=system_prompt,
             temperature=0.75,
         )
 
+        chapter_prose, audit_data = self._extract_prose_and_audit(raw_output)
+        if not chapter_prose.startswith("#"):
+            chapter_prose = f"# Bab {chap_num}: {chap_title}\n\n{chapter_prose}"
+
         project.save_chapter(chap_num, chapter_prose, beats=normalized_beats)
+        if audit_data:
+            self.last_audit = audit_data
+            project.save_chapter_audit(chap_num, audit_data)
         return chapter_prose

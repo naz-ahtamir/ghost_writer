@@ -200,58 +200,117 @@ def write_chapter_flow(project: NovelProject, llm: LLMClient) -> None:
     # Check if chapter already drafted
     existing = project.get_chapter(ch_num)
     if existing:
-        if not Confirm.ask(f"[bold yellow]Bab {ch_num} sudah pernah ditulis. Apakah Anda ingin menulis ulang?[/bold yellow]", default=False):
+        existing_words = len(existing.split())
+        console.print(f"\n[bold yellow]ℹ️ Bab {ch_num} sudah memiliki naskah tersimpan ({existing_words} kata).[/bold yellow]")
+        console.print("  [bold green]1.[/bold green] ✨ Poles / Perpanjang / Edit Naskah Bab Ini dengan Instruksi Bebas (Tanpa Generate dari Awal)")
+        console.print("  [bold cyan]2.[/bold cyan] 🛠️ Buka Studio Rencana Bab & Beat (Edit Bab / Beat / Tulis Ulang)")
+        console.print("  [bold white]3.[/bold white] 📖 Baca Naskah Bab Ini Sekarang")
+        console.print("  [bold red]4.[/bold red] 🚪 Batal / Kembali")
+        ex_choice = Prompt.ask("\n[bold green]Pilih aksi (1-4)[/bold green]", choices=["1", "2", "3", "4"], default="1")
+        if ex_choice == "4":
             return
-
-    # Optional free-form scenario / custom direction from user
-    custom_direction = Prompt.ask(
-        "\n[bold yellow]Arahan Bebas / Skenario Khusus Bab Ini[/bold yellow] [dim](opsional: tulis adegan/konflik/momen spesifik yang wajib ada, atau tekan Enter)[/dim]",
-        default="",
-    ).strip()
+        elif ex_choice == "3":
+            console.print(Panel(Markdown(existing), title=f"📖 Naskah Bab {ch_num}: {ch_title} ({existing_words} kata)", border_style="blue"))
+            return
+        elif ex_choice == "1":
+            user_notes = Prompt.ask(
+                "[bold yellow]Tulis instruksi revisi / perpanjangan untuk Bab ini[/bold yellow]",
+                default="Perpanjang adegan secara mendalam, tambahkan deskripsi atmosferik panca indera, monolog batin, dan dialog yang lebih hidup sehingga pembaca benar-benar masuk ke dalam cerita",
+            )
+            audit_data = project.get_chapter_audit(ch_num) or {
+                "pacing_and_style_critique": "Perkaya kedalaman deskripsi sastra, atmosfer ruang, dan imersi emosi tokoh.",
+                "continuity_issues": ["Tidak ada inkonsistensi"],
+                "actionable_suggestions": [user_notes],
+            }
+            writer = WriterAgent(llm)
+            with console.status(f"[bold magenta]✨ Memoles & memperkaya naskah Bab {ch_num} tanpa menghapus kerangka cerita...[/bold magenta]"):
+                revised = writer.revise_chapter(
+                    project=project,
+                    chapter_info=ch_info,
+                    current_prose=existing,
+                    audit_data=audit_data,
+                    user_notes=user_notes,
+                )
+            new_words = len(revised.split())
+            console.print(f"\n[bold green]✓ Bab {ch_num}: {ch_title} berhasil dipoles & diperkaya! ({new_words} kata)[/bold green]\n")
+            if Confirm.ask("[bold cyan]Tampilkan naskah hasil polesan sekarang?[/bold cyan]", default=True):
+                console.print(Panel(Markdown(revised), title=f"✨ Bab {ch_num} (Hasil Polesan): {ch_title}", border_style="green"))
+            return
 
     planner = ScenePlannerAgent(llm)
     saved_beats = project.get_chapter_beats(ch_num)
+    custom_direction = ""
 
-    if saved_beats and not custom_direction:
-        if Confirm.ask(f"[bold cyan]Ditemukan {len(saved_beats)} Scene Beats tersimpan untuk Bab {ch_num}. Gunakan beat tersebut?[/bold cyan]", default=True):
-            beats = ScenePlannerAgent.normalize_beats(saved_beats, chapter_info=ch_info)
-        else:
-            with console.status(f"[bold cyan]📋 Scene Planner Agent sedang merancang ketukan adegan (beats) untuk Bab {ch_num}...[/bold cyan]"):
-                beats = planner.generate_beats(project, ch_info, custom_direction=custom_direction)
+    if saved_beats:
+        beats = ScenePlannerAgent.normalize_beats(saved_beats, chapter_info=ch_info)
+        console.print(
+            f"[bold green]✓ Memuat {len(beats)} Scene Beats tersimpan untuk Bab {ch_num} "
+            f"(Data aman, tidak di-generate ulang dari awal).[/bold green]"
+        )
     else:
+        custom_direction = Prompt.ask(
+            "\n[bold yellow]Arahan Bebas / Skenario Khusus Bab Ini[/bold yellow] [dim](opsional: tulis adegan/konflik/momen spesifik yang wajib ada, atau tekan Enter)[/dim]",
+            default="",
+        ).strip()
         with console.status(f"[bold cyan]📋 Scene Planner Agent sedang merancang ketukan adegan (beats) untuk Bab {ch_num}...[/bold cyan]"):
             beats = planner.generate_beats(project, ch_info, custom_direction=custom_direction)
 
-    # Interactive Beat Review & Writing Mode Loop
-    beat_by_beat_mode = True
+    # Interactive Beat, Chapter Plan, Character & Writing Mode Loop
+    beat_by_beat_mode = False
     while True:
+        ch_title = ch_info.get("title", f"Bab {ch_num}")
         display_beats_list(beats)
 
-        console.print("\n[bold cyan]Pilih Mode Eksekusi Naskah & Kendali Beat:[/bold cyan]")
-        console.print("  [bold green]1.[/bold green] ✍️ Tulis Naskah — [bold]Susun Per Beat (Beat-by-Beat)[/bold] [dim](Rekomendasi: Akurat mengikuti tiap Beat, Utuh & Mendalam)[/dim]")
-        console.print("  [bold white]2.[/bold white] ⚡ Tulis Naskah — [bold]Susun Sekaligus (Single-Pass)[/bold] [dim](Lebih cepat dalam 1x panggilan)[/dim]")
-        console.print("  [bold yellow]3.[/bold yellow] 🛠️ Edit / Tambah / Hapus Beat (Kustomisasi Bebas)")
-        console.print("  [bold yellow]4.[/bold yellow] 📝 Buat Beat Manual Sendiri dari Awal (100% Bebas)")
-        console.print("  [bold cyan]5.[/bold cyan] 🔄 Generate Ulang Beat oleh AI (Masukkan Arahan Baru)")
-        console.print("  [bold red]6.[/bold red] 🚪 Batal / Kembali")
+        console.print("\n[bold cyan]Pilih Eksekusi Naskah atau Edit Bebas Sebelum Generate:[/bold cyan]")
+        console.print("  [bold green]1.[/bold green] ⚡ [bold]Generate Naskah Bab Sekarang — Mode Satset[/bold] [dim](1x Proses: Bab Panjang, Deskriptif, Imersif + Self-Audit)[/dim]")
+        console.print("  [bold white]2.[/bold white] ✍️ [bold]Generate Per Beat — Mode Ekstra Panjang[/bold] [dim](Susun tiap Beat satu per satu untuk bab super panjang)[/dim]")
+        console.print("  [bold yellow]3.[/bold yellow] 📌 [bold]Edit Rencana Bab Ini[/bold] (Ubah Judul Bab, POV, Lokasi, Ringkasan Cerita, Konflik, Ending Bab)")
+        console.print("  [bold yellow]4.[/bold yellow] 🛠️ [bold]Edit / Tambah / Hapus Scene Beat Bab Ini[/bold] (Bebas ubah isi adegan, dialog, konflik tiap beat)")
+        console.print("  [bold yellow]5.[/bold yellow] 👥 [bold]Edit Karakter, Cerita Utama, World Bible, atau Bab Lain[/bold]")
+        console.print("  [bold yellow]6.[/bold yellow] 💬 [bold]Tambah / Ubah Arahan Khusus Penulis untuk Bab Ini[/bold]" + (f" [green](Aktif: '{custom_direction[:40]}...')[/green]" if custom_direction else ""))
+        console.print("  [bold cyan]7.[/bold cyan] 📝 Buat Beat Manual Sendiri dari Awal (100% Tanpa AI)")
+        console.print("  [bold magenta]8.[/bold magenta] 🔄 Minta AI Merancang Ulang Beat Bab Ini")
+        console.print("  [bold red]9.[/bold red] 🚪 Batal / Kembali")
 
-        action = Prompt.ask("\n[bold green]Pilih aksi (1-6)[/bold green]", choices=["1", "2", "3", "4", "5", "6"], default="1")
+        action = Prompt.ask(
+            "\n[bold green]Pilih aksi (1-9)[/bold green]",
+            choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+            default="1",
+        )
 
         if action == "1":
-            beat_by_beat_mode = True
-            break
-        elif action == "2":
             beat_by_beat_mode = False
             break
+        elif action == "2":
+            beat_by_beat_mode = True
+            break
         elif action == "3":
-            beats = edit_beats_interactively(project, ch_num, beats)
+            from cli.wizard import edit_single_chapter_plan_interactively
+            ch_info = edit_single_chapter_plan_interactively(project, ch_info)
+            ch_title = ch_info.get("title", f"Bab {ch_num}")
         elif action == "4":
-            beats = create_manual_beats_flow(project, ch_num)
+            beats = edit_beats_interactively(project, ch_num, beats)
         elif action == "5":
-            custom_direction = Prompt.ask("[bold yellow]Masukkan arahan/skenario baru untuk pembuatan Beat[/bold yellow]", default=custom_direction)
+            from cli.wizard import manage_foundation_studio
+            manage_foundation_studio(project, llm)
+            # Refresh ch_info in case user edited this chapter inside the studio
+            for c in project.outline.get("chapters", []):
+                if c.get("chapter_number") == ch_num:
+                    ch_info = c
+                    break
+        elif action == "6":
+            custom_direction = Prompt.ask(
+                "[bold yellow]Arahan Bebas / Skenario Khusus untuk Bab Ini[/bold yellow]",
+                default=custom_direction,
+            ).strip()
+            console.print("[bold green]✓ Arahan khusus bab berhasil disimpan untuk proses penulisan![/bold green]")
+        elif action == "7":
+            beats = create_manual_beats_flow(project, ch_num)
+        elif action == "8":
+            custom_direction = Prompt.ask("[bold yellow]Masukkan arahan/skenario untuk pembuatan ulang Beat oleh AI[/bold yellow]", default=custom_direction)
             with console.status(f"[bold cyan]📋 Scene Planner Agent sedang merancang ulang beats untuk Bab {ch_num}...[/bold cyan]"):
                 beats = planner.generate_beats(project, ch_info, custom_direction=custom_direction)
-        elif action == "6":
+        elif action == "9":
             return
 
     # Step 2: Prose Writer Agent
@@ -277,7 +336,7 @@ def write_chapter_flow(project: NovelProject, llm: LLMClient) -> None:
         finally:
             status_ctx.stop()
     else:
-        with console.status(f"[bold magenta]✍️ Prose Writer Agent sedang menyusun naskah Bab {ch_num} berdasarkan blueprint beat...[/bold magenta]"):
+        with console.status(f"[bold magenta]⚡ Prose Writer + Self-Audit sedang menyusun & memoles Bab {ch_num} (1x proses)...[/bold magenta]"):
             prose = writer.write_chapter(
                 project=project,
                 chapter_info=ch_info,
@@ -287,16 +346,19 @@ def write_chapter_flow(project: NovelProject, llm: LLMClient) -> None:
             )
 
     word_count = len(prose.split())
-    console.print(f"\n[bold green]🎉 Bab {ch_num}: {ch_title} selesai disusun berdasarkan {len(beats)} beat! ({word_count} kata)[/bold green]\n")
+    console.print(f"\n[bold green]🎉 Bab {ch_num}: {ch_title} selesai disusun & diaudit berdasarkan {len(beats)} beat! ({word_count} kata)[/bold green]\n")
+
+    if writer.last_audit:
+        display_audit_panel(writer.last_audit, ch_title)
 
     # Preview options
     if Confirm.ask("[bold cyan]Tampilkan naskah bab di layar terminal sekarang?[/bold cyan]", default=True):
         console.print(Panel(Markdown(prose), title=f"📖 Naskah Bab {ch_num}: {ch_title}", border_style="blue"))
 
-    # Automatically generate & render 3 Consistent Realistic Illustrations for this chapter
+    # Optional 3 Consistent Realistic Illustrations for this chapter (default False for fast writing)
     if Confirm.ask(
-        f"\n[bold magenta]🎨 Generate & Render 3 Ilustrasi Bab {ch_num} (Konsisten, Fotorealistis & Sensor Terendah) sekarang?[/bold magenta]",
-        default=True,
+        f"\n[bold magenta]🎨 Generate & Render 3 Ilustrasi Bab {ch_num} sekarang?[/bold magenta]",
+        default=False,
     ):
         illustrator = IllustratorAgent(llm)
         with console.status("[bold cyan]🧬 Mengunci Visual Bible & Character Visual DNA...[/bold cyan]"):
@@ -346,10 +408,6 @@ def write_chapter_flow(project: NovelProject, llm: LLMClient) -> None:
 
         if Confirm.ask("[bold cyan]Ingin mengedit pose/prompt atau me-render ulang salah satu ilustrasi di Studio Ilustrasi?[/bold cyan]", default=False):
             illustrate_chapter_flow(project, llm, specific_chapter=ch_num)
-
-    # Offer immediate audit
-    if Confirm.ask("\n[bold yellow]Lakukan audit kontinuitas & kepatuhan beat dengan Editor Agent sekarang?[/bold yellow]", default=True):
-        audit_chapter_flow(project, llm, ch_num)
 
 
 def audit_chapter_flow(project: NovelProject, llm: LLMClient, specific_chapter: int = None) -> None:

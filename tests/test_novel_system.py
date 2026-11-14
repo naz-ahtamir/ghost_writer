@@ -151,24 +151,30 @@ def test_project_foundation_completion():
 
 def test_delete_project():
     import config
-    # Create a temporary project inside config.PROJECTS_DIR
-    proj = ProjectManager.create_project(
-        title="Proyek Untuk Dihapus",
-        author="Tester",
-        genre="Fiksi",
-        tone="Ceria",
-        premise="Testing delete.",
-    )
-    slug = proj.project_dir.name
-    assert (config.PROJECTS_DIR / slug).exists()
+    orig_projects_dir = config.PROJECTS_DIR
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config.PROJECTS_DIR = Path(tmp_dir)
+        try:
+            # Create a temporary project inside config.PROJECTS_DIR
+            proj = ProjectManager.create_project(
+                title="Proyek Untuk Dihapus",
+                author="Tester",
+                genre="Fiksi",
+                tone="Ceria",
+                premise="Testing delete.",
+            )
+            slug = proj.project_dir.name
+            assert (config.PROJECTS_DIR / slug).exists()
 
-    # Delete the project
-    success = ProjectManager.delete_project(slug)
-    assert success is True
-    assert not (config.PROJECTS_DIR / slug).exists()
+            # Delete the project
+            success = ProjectManager.delete_project(slug)
+            assert success is True
+            assert not (config.PROJECTS_DIR / slug).exists()
 
-    # Deleting non-existent project returns False
-    assert ProjectManager.delete_project("non_existent_slug_12345") is False
+            # Deleting non-existent project returns False
+            assert ProjectManager.delete_project("non_existent_slug_12345") is False
+        finally:
+            config.PROJECTS_DIR = orig_projects_dir
 
 
 def test_llm_json_extraction_robustness():
@@ -741,6 +747,107 @@ def test_chapter_illustrations_and_visual_consistency():
     assert get_local_reader_url(html_file).startswith("file://")
     opened = open_file_in_viewer(html_file, prefer_native_app=False)
     assert opened
+
+
+def test_writer_integrated_single_pass_with_audit():
+    from agents.writer import WriterAgent
+
+    class DummySinglePassLLM:
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, prompt, system_instruction=None, temperature=0.75, **kwargs):
+            self.calls += 1
+            return (
+                "# Bab 1: Kabut Malam\n\n"
+                "Raka melangkah menyusuri lorong batu yang basah oleh gerimis.\n\n"
+                "===AUDIT_SUMMARY===\n"
+                '{"score": 92, "summary_review": "Semua beat tereksekusi rapi.", '
+                '"strengths": ["Atmosfer kuat"], "continuity_issues": ["Tidak ada inkonsistensi"], '
+                '"pacing_and_style_critique": "Ritme pas.", "actionable_suggestions": []}'
+            )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        proj = NovelProject(Path(tmp_dir) / "satset_novel")
+        proj.save_metadata({"title": "Satset", "language": "Indonesian", "target_words_per_chapter": 1500})
+        proj.save_world_bible({"setting_name": "Kota Kabut", "atmosphere": "Kelam"})
+        proj.save_characters([{"name": "Raka", "role": "Protagonist", "personality": "Tegas"}])
+
+        dummy = DummySinglePassLLM()
+        writer = WriterAgent(dummy)
+        prose = writer.write_chapter(
+            project=proj,
+            chapter_info={"chapter_number": 1, "title": "Kabut Malam", "pov_character": "Raka"},
+            beats=[{"beat_number": 1, "beat_name": "Pembuka", "scene_events": "Raka berjalan di lorong"}],
+        )
+
+        # Must run in a single LLM call (default beat_by_beat=False)
+        assert dummy.calls == 1
+        # Audit footer must be stripped from saved chapter prose
+        assert "AUDIT_SUMMARY" not in prose
+        assert "Raka melangkah menyusuri lorong" in prose
+        # Audit data must be parsed and saved automatically
+        assert writer.last_audit is not None
+        assert writer.last_audit["score"] == 92
+        saved_audit = proj.get_chapter_audit(1)
+        assert saved_audit is not None
+        assert saved_audit["score"] == 92
+
+
+def test_free_editing_and_immersive_writer_prompts():
+    from agents.writer import WriterAgent
+    from core.prompts import WRITER_SYSTEM
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        proj = NovelProject(Path(tmp_dir) / "editable_novel")
+        proj.save_metadata({
+            "title": "Judul Awal",
+            "premise": "Premis awal",
+            "target_chapters": 2,
+            "target_words_per_chapter": 3000,
+        })
+        proj.save_world_bible({
+            "setting_name": "Kota Lama",
+            "core_concept": "Konsep lama",
+            "atmosphere": "Kelam",
+        })
+        proj.save_characters([
+            {"name": "Arya", "role": "Protagonist", "personality": "Tenang"},
+        ])
+        proj.save_outline({
+            "overall_synopsis": "Sinopsis awal",
+            "chapters": [
+                {"chapter_number": 1, "title": "Bab Satu Awal", "pov_character": "Arya", "summary": "Awal cerita"},
+                {"chapter_number": 2, "title": "Bab Dua Awal", "pov_character": "Arya", "summary": "Kelanjutan"},
+            ],
+        })
+        # Save existing beats for chapter 1
+        proj.save_chapter_beats(1, [
+            {"beat_number": 1, "beat_name": "Beat Tersimpan", "scene_events": "Arya membuka pintu tua"},
+        ])
+
+        # Edit chapter 1 plan & character without wiping saved beats or chapter 2
+        outline = dict(proj.outline)
+        outline["chapters"][0]["title"] = "Bab Satu Baru yang Diedit"
+        outline["chapters"][0]["summary"] = "Ringkasan bab 1 yang sudah diedit bebas"
+        proj.save_outline(outline)
+
+        chars = list(proj.characters)
+        chars[0]["personality"] = "Tajam, penuh perhitungan, dan emosional"
+        chars.append({"name": "Senja", "role": "Antagonist", "personality": "Karismatik"})
+        proj.save_characters(chars)
+
+        reloaded = NovelProject(Path(tmp_dir) / "editable_novel")
+        assert reloaded.outline["chapters"][0]["title"] == "Bab Satu Baru yang Diedit"
+        assert reloaded.outline["chapters"][1]["title"] == "Bab Dua Awal"
+        assert len(reloaded.characters) == 2
+        assert reloaded.get_chapter_beats(1)[0]["beat_name"] == "Beat Tersimpan"
+
+        # Verify WriterAgent blueprint & system prompt enforce long, immersive, anti-summary prose
+        blueprint = WriterAgent.format_beats_blueprint(reloaded.get_chapter_beats(1), target_words=3200)
+        assert "3200 kata" in blueprint
+        assert "IMERSI TOTAL" in WRITER_SYSTEM
+        assert "DILARANG MERANGKUM ADEGAN" in WRITER_SYSTEM
 
 
 if __name__ == "__main__":

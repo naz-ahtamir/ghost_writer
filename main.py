@@ -299,47 +299,40 @@ def select_existing_project(llm: Optional[LLMClient] = None, current_project: Op
 
 
 def show_world_and_characters(project: NovelProject, llm: Optional[LLMClient] = None) -> None:
-    """View world lore, character bible, and outline, with option to resume or regenerate."""
-    print_header(f"📖 World Lore, Karakter & Alur - {project.metadata.get('title')}")
+    """View and freely edit story premise, world lore, character bible, and chapter outline."""
+    from cli.wizard import manage_foundation_studio, resume_project_foundation
 
-    # World details
-    if project.is_world_bible_complete():
-        wb = project.world_bible
-        console.print(Panel(
-            f"[bold cyan]Latar:[/bold cyan] {wb.get('setting_name')}\n"
-            f"[bold cyan]Atmosfer:[/bold cyan] {wb.get('atmosphere')}\n"
-            f"[bold cyan]Aturan / Sistem:[/bold cyan] {wb.get('rules_and_systems')}\n"
-            f"[bold cyan]Sejarah / Lore:[/bold cyan] {wb.get('historical_lore')}",
-            title="🏛️ World Bible",
-            border_style="blue",
-        ))
-    else:
-        console.print(Panel("[dim yellow]World Bible belum dibuat untuk proyek ini.[/dim yellow]", title="🏛️ World Bible", border_style="yellow"))
-
-    # Characters table
-    if project.is_characters_complete():
-        display_characters_table(project.characters)
-    else:
-        console.print("[dim yellow]👥 Profil Karakter belum dibuat untuk proyek ini.[/dim yellow]")
-
-    # Outline summary
-    if project.is_outline_complete():
-        chapters = project.outline.get("chapters", [])
-        display_chapters_table(chapters, project.list_drafted_chapters())
-    else:
-        console.print("[dim yellow]🗺️ Outline Bab belum dibuat untuk proyek ini.[/dim yellow]")
-
-    # Management options
     if not project.is_foundation_complete():
         missing = ", ".join(project.get_missing_foundation_components())
         console.print(f"\n[bold yellow]⚠️ Fondasi novel ini belum lengkap: {missing}[/bold yellow]")
-        if llm and Confirm.ask("Apakah Anda ingin melengkapi fondasi yang belum ada sekarang?", default=True):
-            from cli.wizard import resume_project_foundation
+        console.print("  [bold green]1.[/bold green] 🤖 Lengkapi Hanya Bagian yang Belum Ada dengan AI (Data Lain Tetap Aman)")
+        console.print("  [bold yellow]2.[/bold yellow] ✏️ Buka Studio Edit Manual (Isi / Edit Bab, Karakter, Cerita & World Bible Sendiri)")
+        console.print("  [bold cyan]3.[/bold cyan] 🚪 Kembali")
+        c = Prompt.ask("Pilih aksi (1-3)", choices=["1", "2", "3"], default="1")
+        if c == "1" and llm:
             resume_project_foundation(project, llm, force_all=False)
+        elif c == "2" and llm:
+            manage_foundation_studio(project, llm)
+        return
+
+    if llm:
+        manage_foundation_studio(project, llm)
     else:
-        if llm and Confirm.ask("\nApakah Anda ingin merancang ulang (regenerate) seluruh fondasi novel ini?", default=False):
-            from cli.wizard import resume_project_foundation
-            resume_project_foundation(project, llm, force_all=True)
+        print_header(f"📖 World Lore, Karakter & Alur - {project.metadata.get('title')}")
+        if project.is_world_bible_complete():
+            wb = project.world_bible
+            console.print(Panel(
+                f"[bold cyan]Latar:[/bold cyan] {wb.get('setting_name')}\n"
+                f"[bold cyan]Atmosfer:[/bold cyan] {wb.get('atmosphere')}\n"
+                f"[bold cyan]Aturan / Sistem:[/bold cyan] {wb.get('rules_and_systems')}\n"
+                f"[bold cyan]Sejarah / Lore:[/bold cyan] {wb.get('historical_lore')}",
+                title="🏛️ World Bible",
+                border_style="blue",
+            ))
+        if project.is_characters_complete():
+            display_characters_table(project.characters)
+        if project.is_outline_complete():
+            display_chapters_table(project.outline.get("chapters", []), project.list_drafted_chapters())
 
 
 def export_novel_flow(project: NovelProject) -> None:
@@ -506,11 +499,11 @@ def main() -> None:
         console.print("\n[bold cyan]=== MENU UTAMA GHOSTWRITER ===[/bold cyan]")
         console.print("  [bold white]1.[/bold white] 🌟 Buat Proyek Novel Baru (Ide Manual / Upload File Artikel)")
         console.print("  [bold white]2.[/bold white] 📂 Buka & Kelola Proyek Novel (Buka / Hapus)")
-        console.print("  [bold white]3.[/bold white] ✍️ Tulis / Lanjutkan Bab (Scene Planner + Prose Writer)")
+        console.print("  [bold white]3.[/bold white] ✍️ Tulis & Audit Bab (Mode Satset: Panjang, Deskriptif & Imersif)")
         console.print("  [bold white]4.[/bold white] 🎨 Buat & Kelola Ilustrasi Bab (3 Ilustrasi Realistis, Konsisten & Tanpa Sensor)")
-        console.print("  [bold white]5.[/bold white] 🔍 Audit & Edit Bab (Continuity & Style Editor)")
+        console.print("  [bold white]5.[/bold white] 🔍 Poles / Perpanjang / Revisi Manual Bab")
         console.print("  [bold white]6.[/bold white] 📖 Baca Naskah Bab di Terminal")
-        console.print("  [bold white]7.[/bold white] 👥 Lihat & Kelola Karakter, World Bible, & Outline")
+        console.print("  [bold white]7.[/bold white] 🛠️ Studio Edit Bebas: Bab, Karakter, Cerita & World Bible")
         console.print("  [bold white]8.[/bold white] 📦 Export Novel + Ilustrasi (Markdown & Word .docx)")
         console.print("  [bold white]9.[/bold white] ⚙️ Pengaturan AI (Grok / Gemini / Engine Ilustrasi)")
         console.print("  [bold white]10.[/bold white] 🚪 Keluar")

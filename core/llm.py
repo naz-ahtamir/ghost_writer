@@ -387,7 +387,7 @@ class LLMClient:
                 "temperature": temperature,
             }
             if not is_grok:
-                payload["max_tokens"] = 8192
+                payload["max_tokens"] = 16384
             if is_json:
                 payload["response_format"] = {"type": "json_object"}
 
@@ -529,7 +529,7 @@ class LLMClient:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
             gen_config: Dict[str, Any] = {
                 "temperature": temperature,
-                "maxOutputTokens": 8192,
+                "maxOutputTokens": 16384,
             }
             if is_json:
                 gen_config["responseMimeType"] = "application/json"
