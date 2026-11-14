@@ -154,6 +154,9 @@ class ScenePlannerAgent:
         user_prompt = SCENE_PLANNER_USER_TEMPLATE.format(
             chapter_number=chap_num,
             chapter_title=chapter_info.get("title", f"Bab {chap_num}"),
+            genre=meta.get("genre", "Fiksi"),
+            tone=meta.get("tone", "Realistis"),
+            premise=meta.get("premise", ""),
             chapter_summary=chapter_info.get("summary", ""),
             pov_character=chapter_info.get("pov_character", "Protagonis"),
             setting=chapter_info.get("setting", ""),

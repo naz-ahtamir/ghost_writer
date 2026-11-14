@@ -142,6 +142,10 @@ class WriterAgent:
                 beat_prompt = WRITER_BEAT_TEMPLATE.format(
                     chapter_number=chap_num,
                     chapter_title=chap_title,
+                    genre=meta.get("genre", "Fiksi"),
+                    tone=meta.get("tone", "Realistis"),
+                    premise=meta.get("premise", ""),
+                    chapter_summary=chapter_info.get("summary", ""),
                     beat_number=idx,
                     total_beats=total_beats,
                     pov_character=chapter_info.get("pov_character", "Protagonis"),
@@ -195,6 +199,10 @@ class WriterAgent:
         user_prompt = WRITER_USER_TEMPLATE.format(
             chapter_number=chap_num,
             chapter_title=chap_title,
+            genre=meta.get("genre", "Fiksi"),
+            tone=meta.get("tone", "Realistis"),
+            premise=meta.get("premise", ""),
+            chapter_summary=chapter_info.get("summary", ""),
             pov_character=chapter_info.get("pov_character", "Protagonis"),
             setting=chapter_info.get("setting", ""),
             conflict=chapter_info.get("conflict", ""),

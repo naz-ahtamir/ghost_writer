@@ -163,6 +163,10 @@ Bahasa yang digunakan: {language}."""
 
 SCENE_PLANNER_USER_TEMPLATE = """Rancang Scene Beat Sheet terstruktur untuk Bab {chapter_number}: "{chapter_title}":
 
+FONDASI NOVEL (WAJIB DIPATUHI):
+- Genre & Tone: {genre} | {tone}
+- Premis Utama Novel: {premise}
+
 INFO BAB:
 - Sinopsis Bab: {chapter_summary}
 - POV Karakter: {pov_character}
@@ -170,11 +174,15 @@ INFO BAB:
 - Konflik Utama: {conflict}
 - Titik Balik Akhir Bab: {turning_point}
 
-ARAHAN KHUSUS / SKENARIO TAMBAHAN DARI PENULIS:
+ARAHAN KHUSUS / SKENARIO TAMBAHAN DARI PENULIS (PRIORITAS TERTINGGI):
 {custom_direction}
 
 KONTEKS CERITA DARI BAB SEBELUMNYA:
 {continuity_summary}
+
+ATURAN KEPATUHAN KETAT:
+- Seluruh beat HARUS setia 100% pada Premis Utama Novel, Sinopsis Bab, dan Arahan Khusus Penulis.
+- DILARANG melenceng, mengganti tokoh utama, atau mengarang sub-plot yang bertentangan dengan permintaan penulis.
 
 Susun 3 hingga 5 beat adegan yang berkesinambungan dari awal bab hingga mencapai Titik Balik Akhir Bab.
 Hasilkan output dalam format JSON objek dengan kunci "beats":
@@ -205,12 +213,17 @@ Bahasa yang digunakan: {language}."""
 WRITER_BEAT_TEMPLATE = """Anda sedang menyusun naskah Bab {chapter_number}: "{chapter_title}" secara bertahap BEAT DEMI BEAT.
 Tugas Anda SEKARANG adalah menulis **HANYA BEAT {beat_number} dari {total_beats}** secara lengkap dan mendalam.
 
+FONDASI NOVEL (WAJIB DIPATUHI):
+- Genre & Tone: {genre} | {tone}
+- Premis Utama Novel: {premise}
+
 INFO BAB:
+- Sinopsis Bab: {chapter_summary}
 - POV Karakter: {pov_character}
 - Latar Lokasi: {setting}
 - Konflik Utama Bab: {conflict}
 - Titik Balik Akhir Bab (dicapai pada Beat {total_beats}): {turning_point}
-- Arahan Khusus Penulis: {custom_instructions}
+- Arahan Khusus Penulis (PRIORITAS TERTINGGI): {custom_instructions}
 
 PETA KESELURUHAN BEAT DALAM BAB INI (Sebagai acuan alur agar tidak melompat ke beat berikutnya):
 {all_beats_overview}
@@ -240,19 +253,24 @@ NASKAH BEAT SEBELUMNYA DI BAB INI (Lanjutkan langsung secara mulus dari kalimat 
 INSTRUKSI EKSEKUSI BEAT {beat_number}:
 1. {heading_instruction}
 2. Tulis HANYA adegan untuk **Beat {beat_number}: "{beat_name}"** secara utuh, hidup, dan terperinci (~{target_beat_words} kata).
-3. Eksekusi seluruh `Rangkaian Kejadian & Aksi Wajib`, `Tujuan`, `Hambatan`, `Detail Panca Indera`, dan `Perubahan Emosi` dari Beat {beat_number} tanpa ada yang terlewat.
+3. Eksekusi seluruh `Rangkaian Kejadian & Aksi Wajib`, `Tujuan`, `Hambatan`, `Detail Panca Indera`, dan `Perubahan Emosi` dari Beat {beat_number} secara LITERAL & SETIA tanpa melenceng ke plot lain atau mengubah inti permintaan penulis.
 4. JANGAN melompat atau menulis peristiwa milik Beat berikutnya ({next_beat_hint}). Berhentilah tepat ketika peristiwa dan perubahan emosi di Beat {beat_number} telah tuntas.
 5. Jangan tambahkan komentar atau judul beat di luar narasi cerita."""
 
 WRITER_USER_TEMPLATE = """Tulis naskah lengkap untuk Bab {chapter_number}: "{chapter_title}" dengan menyusun setiap BEAT ADEGAN secara berurutan dan utuh.
 
+FONDASI NOVEL (WAJIB DIPATUHI):
+- Genre & Tone: {genre} | {tone}
+- Premis Utama Novel: {premise}
+
 INFO BAB:
+- Sinopsis Bab: {chapter_summary}
 - POV Karakter: {pov_character}
 - Latar Lokasi: {setting}
 - Konflik Utama: {conflict}
 - Titik Balik Akhir: {turning_point}
 - Target Panjang Kata: Sekitar {target_words} kata
-- Arahan Khusus Penulis: {custom_instructions}
+- Arahan Khusus Penulis (PRIORITAS TERTINGGI): {custom_instructions}
 
 BLUEPRINT BEAT ADEGAN YANG WAJIB DISUSUN SECARA BERURUTAN (JANGAN ADA BEAT YANG DILEWATI ATAU DIRINGKAS):
 {beats_json}

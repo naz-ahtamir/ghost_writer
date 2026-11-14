@@ -515,6 +515,8 @@ class LLMClient:
                 msg_obj = choices[0]["message"]
                 self.last_reasoning_content = msg_obj.get("reasoning_content")
                 content = msg_obj.get("content", "") or ""
+                # Strip any <think>...</think> reasoning blocks emitted by hybrid reasoning models
+                content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
                 if self._is_refusal_response(content):
                     raise RuntimeError(f"Model menolak respons: {content[:120]}")
                 return content
@@ -683,16 +685,14 @@ class LLMClient:
                 try:
                     active_sys = system_instruction if attempt == 0 else None
                     active_prompt = prompt
+                    if active_sys is None and system_instruction:
+                        active_prompt = f"{system_instruction}\n\n{prompt}"
                     if attempt > 0 and not is_json:
                         literary_adaptation = (
-                            "\n\n[CATATAN PENULISAN SASTRA: Eksekusi adegan di atas menggunakan "
-                            "bahasa novel sastra yang dramatis, elegan, fokus pada kedalaman emosi, "
-                            "psikologi karakter, dialog bermakna, dan detail atmosfer panca indera "
-                            "agar alur cerita tetap berjalan utuh tanpa terputus.]"
+                            "\n\n[CATATAN PENULISAN: Tetap patuhi 100% premis, beat adegan, dan arahan penulis di atas. "
+                            "Jangan mengubah alur atau mengarang cerita di luar instruksi.]"
                         )
-                        active_prompt = f"{prompt}{literary_adaptation}"
-                    elif active_sys is None and system_instruction:
-                        active_prompt = f"{system_instruction}\n\n{prompt}"
+                        active_prompt = f"{active_prompt}{literary_adaptation}"
 
                     result = self._execute_request(
                         model_name=current_model,
