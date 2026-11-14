@@ -252,7 +252,14 @@ class LLMClient:
         """Initialize provider client and auto-detect models."""
         # Sanitize legacy invalid model names that might be stored in .env
         invalid_legacy = {
-            "gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.7-flash", "grok-4.7", "grok-4"
+            "gemini-3.8-flash",
+            "gemini-3.5-flash",
+            "gemini-3.7-flash",
+            "grok-4.7",
+            "grok-4",
+            "nousresearch/hermes-4-70b",
+            "nousresearch/hermes-3-llama-3.1-70b",
+            "nousresearch/hermes-3-llama-3.1-405b",
         }
         if self.model in invalid_legacy:
             if self.provider == "grok":
