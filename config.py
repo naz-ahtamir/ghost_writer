@@ -57,9 +57,9 @@ GROK_TOKEN_WARN_THRESHOLD = int(os.getenv("GROK_TOKEN_WARN_THRESHOLD", "160000")
 OPENROUTER_MODELS = [
     "nousresearch/hermes-4-405b",
     "sao10k/l3.1-euryale-70b",
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition",
-    "thedrummer/cydonia-24b-v4.1",
     "deepseek/deepseek-chat-v3-0324",
+    "mistralai/mistral-large-2512",
+    "cognitivecomputations/dolphin-mistral-24b-venice-edition",
 ]
 DEFAULT_OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nousresearch/hermes-4-405b")
 

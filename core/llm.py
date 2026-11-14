@@ -386,6 +386,8 @@ class LLMClient:
                 "messages": chat_messages,
                 "temperature": temperature,
             }
+            if not is_grok:
+                payload["max_tokens"] = 8192
             if is_json:
                 payload["response_format"] = {"type": "json_object"}
 

@@ -52,9 +52,9 @@ class WriterAgent:
             cleaned,
             flags=re.IGNORECASE,
         ).strip()
-        # Remove leading "## Beat X..." or "### Beat X..." if the LLM added a beat subheader
+        # Remove leading "## Beat X..." or "**Beat X...**" if the LLM added a beat subheader
         cleaned = re.sub(
-            r"^#{1,4}\s*Beat\s*\d+.*?\n+",
+            r"^(?:#{1,4}\s*|\*\*\s*)Beat\s*\d+[^\n]*\n+",
             "",
             cleaned,
             flags=re.IGNORECASE,
@@ -142,6 +142,7 @@ class WriterAgent:
                 beat_prompt = WRITER_BEAT_TEMPLATE.format(
                     chapter_number=chap_num,
                     chapter_title=chap_title,
+                    language=lang,
                     genre=meta.get("genre", "Fiksi"),
                     tone=meta.get("tone", "Realistis"),
                     premise=meta.get("premise", ""),

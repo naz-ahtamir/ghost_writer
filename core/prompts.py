@@ -252,10 +252,11 @@ NASKAH BEAT SEBELUMNYA DI BAB INI (Lanjutkan langsung secara mulus dari kalimat 
 
 INSTRUKSI EKSEKUSI BEAT {beat_number}:
 1. {heading_instruction}
-2. Tulis HANYA adegan untuk **Beat {beat_number}: "{beat_name}"** secara utuh, hidup, dan terperinci (~{target_beat_words} kata).
-3. Eksekusi seluruh `Rangkaian Kejadian & Aksi Wajib`, `Tujuan`, `Hambatan`, `Detail Panca Indera`, dan `Perubahan Emosi` dari Beat {beat_number} secara LITERAL & SETIA tanpa melenceng ke plot lain atau mengubah inti permintaan penulis.
-4. JANGAN melompat atau menulis peristiwa milik Beat berikutnya ({next_beat_hint}). Berhentilah tepat ketika peristiwa dan perubahan emosi di Beat {beat_number} telah tuntas.
-5. Jangan tambahkan komentar atau judul beat di luar narasi cerita."""
+2. Tulis HANYA adegan untuk **Beat {beat_number}: "{beat_name}"** secara utuh, hidup, dan terperinci (~{target_beat_words} kata) dalam bahasa {language} yang alami dan mengalir.
+3. JANGAN mengulang atau menulis ulang kalimat/paragraf yang sudah ada di `NASKAH BEAT SEBELUMNYA`; langsung lanjutkan alur setelah kalimat terakhir tersebut.
+4. Eksekusi seluruh `Rangkaian Kejadian & Aksi Wajib`, `Tujuan`, `Hambatan`, `Detail Panca Indera`, dan `Perubahan Emosi` dari Beat {beat_number} secara LITERAL & SETIA tanpa melenceng ke plot lain atau mengubah inti permintaan penulis.
+5. JANGAN melompat atau menulis peristiwa milik Beat berikutnya ({next_beat_hint}). Berhentilah tepat ketika peristiwa dan perubahan emosi di Beat {beat_number} telah tuntas.
+6. Jangan tambahkan komentar, catatan meta, atau judul beat di luar narasi cerita."""
 
 WRITER_USER_TEMPLATE = """Tulis naskah lengkap untuk Bab {chapter_number}: "{chapter_title}" dengan menyusun setiap BEAT ADEGAN secara berurutan dan utuh.
 
